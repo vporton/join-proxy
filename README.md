@@ -1,19 +1,13 @@
-# Paid Proxy
+# Request Join Proxy
 
 ## What it does
-It's a reverse proxy that limits an amount of requests accordingly to specified price of every request. The accounts can be topped up by in-app purchases or Stripe.
 
-**Warning:** The support for in-app purchases is not yet debugged,
-because Google is slow to answer bug reports and support requests.
-_(I am creating my first Android app and when I follow the Google help
-to sign my app for uploading to Google Play, it does not work, so
-I can't yet test in-app purchases. The bug was filed.)_
-Stripe support is not high priority, and it is therefore not tested, too.
+This will contain a proxy that intentionally delivers outdated data.
 
 ## Running environment
 
 This app can be run on a server or (presumably less expensively) as
-an AWS Lambda with DB stored in an EFS.
+an AWS Lambda.
 
 ## Testing the app
 
