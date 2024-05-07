@@ -1,0 +1,6 @@
+venv/
+__pycache__
+.idea/
+tmp/
+config.json
+google_credentials.json

@@ -1,0 +1,8 @@
+flask
+Werkzeug==2.0.0
+requests
+lmdb
+flask-compress
+flufl.lock
+stripe
+inapppy
