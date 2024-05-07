@@ -1,7 +1,7 @@
 import re
 import struct
 import requests as requests
-from common import OurDB, config, fund_account  # before `flask`
+from common import OurDB, config  # before `flask`
 import common
 from flask import request, jsonify
 
@@ -93,18 +93,6 @@ def proxy_handler(account, p):
 
             break
     return "Path not found.", 404
-
-
-@app.route('/balance/<account>', methods=['GET'])
-def get_balance(account):
-    with OurDB() as our_db:
-        with our_db.env.begin(our_db.accounts_db, write=False) as txn:  # TODO: buffers=True allowed?
-            balance = txn.get(account.encode('utf-8'))
-            if balance is None:
-                balance = 0.0
-            else:
-                balance = struct.unpack('<f', balance)[0]  # float
-            return str(balance)
 
 
 if __name__ == '__main__':
