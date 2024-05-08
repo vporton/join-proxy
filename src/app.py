@@ -113,7 +113,7 @@ def make_request(url, method, headers={}, data=None, params=None):
         print(e)
 
 
-@app.route('<path:p>', methods=['GET', 'POST', 'HEAD'])
+@app.route('<path:p>', methods=['GET', 'POST', 'PUT', 'DELETE', 'CONNECT', 'TRACE', 'PATCH'])
 def proxy_handler(p):
     return serve_proxied(p)
 
