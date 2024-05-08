@@ -79,8 +79,9 @@ def filter_request_headers(headers):
     entries_to_remove = [k for k in headers.keys() if k.lower() in ['host']]
     for k in entries_to_remove:
         del headers[k]
-    for k, v in config['upstreamHeaders'].items():
-        headers[k] = v
+    if 'upstreamHeaders' in config:
+        for k, v in config['upstreamHeaders'].items():
+            headers[k] = v
 
 
 def filter_response_headers(headers):
