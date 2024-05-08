@@ -1,4 +1,5 @@
-import copy
+import werkzeug.datastructures
+import functools
 import hashlib
 import itertools
 import operator
@@ -13,7 +14,7 @@ app = common.app
 
 
 def serialize_http_request(status_code, url, body, headers) -> bytes:
-    headers_joined = itertools.accumulate(headers.items().map(lambda h: h[0]+"\t"+h[1]+"\r"), operator.add)
+    headers_joined = functools.reduce(operator.add, map(lambda h: h[0]+"\t"+h[1]+"\r", headers.items()), "")
     return (str(status_code) + "\n" + url + "\n" + headers_joined + "\n").encode('utf-8') + body
 
 
@@ -28,7 +29,7 @@ def deserialize_http_request(data: bytes):
 
 # Following https://gist.github.com/questjay/3f858c2fea1731d29ea20cd5cb444e30#file-flask-server-proxy
 def serve_proxied(upstream_path):
-    request_headers = copy.copy(request.headers)
+    request_headers = CIMultiDict(request.headers)
     request_body = request.get_data()
     url = config['upstreamPrefix'] + upstream_path if 'upstreamPrefix' in config else \
         "https://" + request_headers['host'] + '/' + upstream_path
@@ -44,7 +45,7 @@ def serve_proxied(upstream_path):
                 if key_value < threshold:
                     cursor.delete()
 
-            request_data = serialize_http_request(request_body, request_headers)
+            request_data = serialize_http_request(0, url, request_body, request_headers)  # FIXME: Initialize HTTP status as 0?
             request_data_hasher = hashlib.sha256()
             request_data_hasher.update(request_data)
             request_hash = request_data_hasher.digest()
@@ -57,14 +58,20 @@ def serve_proxied(upstream_path):
             'headers': old_data[2],
             'body': old_data[3],
         }
+        response['headers'].add('x-joinproxy-response', 'Hit')
     else:
         r = make_request(url, request.method, headers=request_headers, data=request_body)
+        response_headers = werkzeug.datastructures.Headers()
+        for k, v in r.raw.headers.items():
+            response_headers.add(k, v)
         response = {
             'status': r.status_code,
             'url': url,
-            'headers': copy.copy(r.raw.headers),
+            # 'headers': werkzeug.datastructures.Headers(**r.raw.headers),  # does not work
+            'headers': response_headers,
             'body': r.content,
         }
+        response['headers'].add('x-joinproxy-response', 'Miss')
     filter_response_headers(response['headers'])
 
     return Response(
@@ -117,7 +124,7 @@ def make_request(url, method, headers={}, data=None, params=None):
 @app.route('/<path:p>', methods=['GET', 'POST', 'PUT', 'DELETE', 'CONNECT', 'TRACE', 'PATCH'])
 def proxy_handler(p):
     if 'ourSecret' in config:
-        if "Bearer " + config['ourSecret'] != request.headers['x-join-proxy-key']:
+        if "Bearer " + config['ourSecret'] != getattr(request.headers, 'x-joinproxy-key', None):
             abort(401)
 
     return serve_proxied(p)
