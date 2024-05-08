@@ -13,18 +13,21 @@ from flask import Response, abort, request, jsonify
 app = common.app
 
 
-def serialize_http_request(status_code, url, body, headers) -> bytes:
-    headers_joined = functools.reduce(operator.add, map(lambda h: h[0]+"\t"+h[1]+"\r", headers.items()), "")
-    return (str(status_code) + "\n" + url + "\n" + headers_joined + "\n").encode('utf-8') + body
+def serialize_http_request(status_code, method, url, headers, body) -> bytes:
+    headers_list = list(headers.items())
+    def h(t):
+        return t[0]+"\t"+t[1]
+    headers_joined = functools.reduce(lambda a, b: a+"\r"+b, map(h, headers_list[1:]), h(headers_list[0]))
+    return (str(status_code) + "\n" + method + "\n" + url + "\n" + headers_joined + "\n").encode('utf-8') + body
 
 
 def deserialize_http_request(data: bytes):
-    status_code, url, headers_data, body = data.split("\n", 3)
+    status_code, method, url, headers_data, body = data.split(b"\n", 4)
     headers = CIMultiDict()
-    for header_data in headers_data.split("\n"):
-        k, v = header_data.split("\t", 1)
+    for header_data in headers_data.split(b"\r"):
+        k, v = header_data.split(b"\t", 1)
         headers.add(k.decode('utf-8'), v.decode('utf-8'))
-    return int(status_code), url, body, headers
+    return int(status_code), method.decode('utf-8'), url.decode('utf-8'), headers, body
 
 
 # Following https://gist.github.com/questjay/3f858c2fea1731d29ea20cd5cb444e30#file-flask-server-proxy
@@ -45,39 +48,47 @@ def serve_proxied(upstream_path):
                 if key_value < threshold:
                     cursor.delete()
 
-            request_data = serialize_http_request(0, url, request_body, request_headers)  # FIXME: Initialize HTTP status as 0?
+            request_data = serialize_http_request(0, request.method, url, request_headers, request_body)  # FIXME: Initialize HTTP status as 0?
             request_data_hasher = hashlib.sha256()
             request_data_hasher.update(request_data)
             request_hash = request_data_hasher.digest()
 
-            old_data = txn.get(request_hash)
-    if old_data is not None:
+            old_data_value = txn.get(request_hash)
+    if old_data_value is not None:
+        old_data = deserialize_http_request(old_data_value)
         response = {
             'status': old_data[0],
-            'url': old_data[1],
-            'headers': old_data[2],
-            'body': old_data[3],
+            'url': old_data[2],
+            'headers': old_data[3],
+            'body': old_data[4],
         }
-        response['headers'].add('x-joinproxy-response', 'Hit')
+        response['headers'].add('X-JoinProxy-Response', 'Hit')
     else:
         r = make_request(url, request.method, headers=request_headers, data=request_body)
-        response_headers = werkzeug.datastructures.Headers()
-        for k, v in r.raw.headers.items():
-            response_headers.add(k, v)
+
+        new_data = serialize_http_request(r.status_code, request.method, url, r.raw.headers, r.content)
+        with OurDB() as our_db: # TODO: vain transaction
+            with our_db.env.begin(our_db.content_db, write=True) as txn:  # TODO: buffers=True allowed?
+                txn.put(request_hash, new_data)
+
         response = {
             'status': r.status_code,
             'url': url,
             # 'headers': werkzeug.datastructures.Headers(**r.raw.headers),  # does not work
-            'headers': response_headers,
+            'headers': r.raw.headers,
             'body': r.content,
         }
-        response['headers'].add('x-joinproxy-response', 'Miss')
+        response['headers'].add('X-JoinProxy-Response', 'Miss')
     filter_response_headers(response['headers'])
+
+    response_headers = werkzeug.datastructures.Headers()
+    for k, v in response['headers'].items():
+        response_headers.add(k, v)
 
     return Response(
         response=[response['body']],
         status=response['status'],
-        headers=response['headers'],
+        headers=response_headers,
         direct_passthrough=True)
 
 
