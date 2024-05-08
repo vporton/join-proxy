@@ -7,7 +7,7 @@ from multidict import CIMultiDict
 import requests as requests
 from common import OurDB, config  # before `flask`
 import common
-from flask import Response, request, jsonify
+from flask import Response, abort, request, jsonify
 
 app = common.app
 
@@ -115,6 +115,10 @@ def make_request(url, method, headers={}, data=None, params=None):
 
 @app.route('<path:p>', methods=['GET', 'POST', 'PUT', 'DELETE', 'CONNECT', 'TRACE', 'PATCH'])
 def proxy_handler(p):
+    if 'ourSecret' in config:
+        if "Bearer " + config['ourSecret'] != request.headers['x-join-proxy-key']:
+            abort(401)
+
     return serve_proxied(p)
 
 
