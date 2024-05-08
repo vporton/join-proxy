@@ -1,12 +1,11 @@
 import json
-import sys
 
 from flask import Flask
 from flask_compress import Compress
 import lmdb
 from flufl.lock import Lock
 
-with open(sys.argv[1] or "config.json") as config_file:
+with open("config.json") as config_file:
     config = json.load(config_file)
 
 

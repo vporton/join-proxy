@@ -11,7 +11,7 @@ an AWS Lambda.
 
 ## Configuration
 
-The config loads from `config.json` file in the current directory or first command line argument, if any:
+The config loads from `config.json` file in the current directory:
 ```json
 {
   "statePath": "./tmp",
