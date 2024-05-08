@@ -136,7 +136,7 @@ def make_request(url, method, headers={}, data=None, params=None):
 @app.route('/<path:p>', methods=['GET', 'POST', 'PUT', 'DELETE', 'CONNECT', 'TRACE', 'PATCH'])
 def proxy_handler(p):
     if 'ourSecret' in config:
-        if "Bearer " + config['ourSecret'] != getattr(request.headers, 'x-joinproxy-key', None):
+        if "Bearer " + config['ourSecret'] != request.headers.get('x-joinproxy-key'):
             abort(401)
 
     return serve_proxied(p)
