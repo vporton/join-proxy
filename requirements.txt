@@ -4,5 +4,3 @@ requests
 lmdb
 flask-compress
 flufl.lock
-stripe
-inapppy
