@@ -23,6 +23,7 @@ class OurDB:
             config['statePath'],
             max_dbs=8, map_size=1024*1024*1024*1024)  # terabyte (On 64-bit there is no penalty for making this huge (say 1TB))
         self.content_db = self.env.open_db(b'content', create=True)
+        self.time_db = self.env.open_db(b'time', create=True, integerkey=True, dupsort=True)  # TODO: needs at least 64 bit integer
 
         return self
 

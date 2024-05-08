@@ -1,8 +1,7 @@
+import struct
 import werkzeug.datastructures
 import functools
 import hashlib
-import itertools
-import operator
 import time
 from multidict import CIMultiDict
 import requests as requests
@@ -40,20 +39,21 @@ def serve_proxied(upstream_path):
     cur_time = int(round(time.time() * 1000))
     threshold = cur_time - config['cacheTime']
     with OurDB() as our_db:
-        with our_db.env.begin(our_db.content_db, write=True) as txn:  # TODO: buffers=True allowed?
+        with our_db.env.begin(write=True) as txn:
             # Remove all outdated entries:
-            cursor = txn.cursor()
-            for key, _value in cursor:
-                key_value = int.from_bytes(key, byteorder='little')
+            cursor = txn.cursor(db=our_db.time_db)
+            for key, value in cursor:  # TODO: slow
+                key_value, = struct.unpack("Q", key)
                 if key_value < threshold:
                     cursor.delete()
+                    txn.delete(value, db=our_db.content_db)
 
             request_data = serialize_http_request(0, request.method, url, request_headers, request_body)  # FIXME: Initialize HTTP status as 0?
             request_data_hasher = hashlib.sha256()
             request_data_hasher.update(request_data)
             request_hash = request_data_hasher.digest()
 
-            old_data_value = txn.get(request_hash)
+            old_data_value = txn.get(request_hash, db=our_db.content_db)
     if old_data_value is not None:
         old_data = deserialize_http_request(old_data_value)
         response = {
@@ -68,8 +68,9 @@ def serve_proxied(upstream_path):
 
         new_data = serialize_http_request(r.status_code, request.method, url, r.raw.headers, r.content)
         with OurDB() as our_db: # TODO: vain transaction
-            with our_db.env.begin(our_db.content_db, write=True) as txn:  # TODO: buffers=True allowed?
-                txn.put(request_hash, new_data)
+            with our_db.env.begin(write=True) as txn:
+                txn.put(request_hash, new_data, db=our_db.content_db)
+                txn.put(struct.pack("Q", cur_time), request_hash, db=our_db.time_db)
 
         response = {
             'status': r.status_code,
