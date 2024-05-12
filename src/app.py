@@ -20,7 +20,7 @@ def serialize_http_request(status_code, method, url, headers, body) -> bytes:
     return (str(status_code) + "\n" + method + "\n" + url + "\n" + headers_joined + "\n").encode('utf-8') + body
 
 
-def deserialize_http_request(data: bytes):
+def deserialize_http_response(data: bytes):
     status_code, method, url, headers_data, body = data.split(b"\n", 4)
     headers = CIMultiDict()
     for header_data in headers_data.split(b"\r"):
@@ -55,7 +55,7 @@ def serve_proxied(upstream_path):
 
             old_data_value = txn.get(request_hash, db=our_db.content_db)
     if old_data_value is not None:
-        old_data = deserialize_http_request(old_data_value)
+        old_data = deserialize_http_response(old_data_value)
         response = {
             'status': old_data[0],
             'url': old_data[2],
