@@ -1,1 +1,10 @@
--- This file should undo anything in `up.sql`
+DROP INDEX request_request_hash_idx;
+DROP TABLE request;
+DROP INDEX remove_request_header_server_setup_id_idx;
+DROP TABLE remove_request_header;
+DROP INDEX add_request_header_server_setup_id_idx;
+DROP TABLE add_request_header;
+DROP INDEX server_setup_server_prefix_idx;
+DROP INDEX server_setup_user_id_idx;
+DROP TABLE server_setup;
+DROP TABLE users;
