@@ -15,3 +15,5 @@ TODO:
 - If the proxy is directed to its own URL, will this work as a DoS attack?
 
 - Test: `add_per_host`, `remove_per_host`.
+
+- Add `x-nonce`.
