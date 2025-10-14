@@ -1,5 +1,3 @@
-DROP INDEX request_request_hash_idx;
-DROP TABLE request;
 DROP INDEX remove_request_header_server_setup_id_idx;
 DROP TABLE remove_request_header;
 DROP INDEX add_request_header_server_setup_id_idx;

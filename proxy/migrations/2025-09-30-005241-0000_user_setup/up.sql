@@ -32,13 +32,3 @@ CREATE TABLE remove_request_header (
 );
     
 CREATE INDEX remove_request_header_server_setup_id_idx ON remove_request_header (server_setup_id);
-
-CREATE TABLE request (
-    id BIGSERIAL PRIMARY KEY,
-    -- Hash of the request data.
-    request_hash BYTEA NOT NULL,
-    -- Certificate of presence of request_hash in the tree, that the proxy uses to check the request's origin.
-    certificate_hash BYTEA NOT NULL
-);
-
-CREATE INDEX request_request_hash_idx ON request (request_hash);
