@@ -1,3 +1,4 @@
 [submodule "motoko"]
 	path = motoko
-	url = https://github.com/vporton/join-proxy-motoko
+	url = https://github.com/vporton/join-proxy-client.mo
+	branch = multiuser
