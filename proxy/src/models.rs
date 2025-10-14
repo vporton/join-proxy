@@ -1,5 +1,5 @@
 use diesel::{QueryableByName, Selectable};
-use crate::schema::server_setups;
+use crate::schema::{server_setups, users};
 
 #[derive(Selectable, QueryableByName)]
 pub struct User {

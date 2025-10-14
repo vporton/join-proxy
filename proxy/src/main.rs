@@ -21,7 +21,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use anyhow::bail;
 
-use crate::{config::Config, models::ServerSetup, schema::users::user_principal};
+use crate::config::Config;
 
 #[derive(clap::Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -226,7 +226,8 @@ async fn proxy(
         (*cache_lock).set(Some(cached)).await;
         std::mem::drop(cache_lock);
 
-        let caller_principal = req.headers().get("x-principal"); // TODO: Use the last header, remove it.
+        let caller_principal = req.headers().get_all("x-principal").next_back();
+        headers.remove("x-principal"); // TODO: Should remove only the last `X-Principal`. (Or is it removed by `next_back()`?)
         if config.require_x_principal && caller_principal.is_none() {
             return Err(anyhow!("missing X-Principal header").into());
         }
@@ -266,14 +267,14 @@ async fn proxy(
                 if a_user_principal != caller_principal.as_slice() {
                     return Err(anyhow!("access denied").into());
                 }
-            };
 
-            if a_show_hit_miss {
-                headers.append(
-                    http_for_actix::HeaderName::from_str("X-JoinProxy-Response").unwrap(),
-                    http_for_actix::HeaderValue::from_str("Miss").unwrap(),
-                );
-            }
+                if a_show_hit_miss {
+                    headers.append(
+                        http_for_actix::HeaderName::from_str("X-JoinProxy-Response").unwrap(),
+                        http_for_actix::HeaderValue::from_str("Miss").unwrap(),
+                    );
+                }
+            };
         }
         if config.response_headers.add_forwarded_from_header {
             if let Some(addr) = req.head().peer_addr {
@@ -286,7 +287,6 @@ async fn proxy(
         for k in state.response_headers_to_remove.iter() {
             headers.remove(k);
         }
-        headers.remove("x-principal"); // TODO: Should remove only the last `X-Principal`.
         for (k, v) in config.response_headers.add.iter() {
             headers.append(
                 http_for_actix::HeaderName::from_str(k).map_err(|_| InvalidHeaderNameError::default())?,
