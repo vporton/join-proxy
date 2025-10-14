@@ -1,6 +1,8 @@
 # Simple Bearer authentication. On IC platform you should use callback authentication instead.
 #our_secret = "<KEY>"
 
+require_x_principal = true
+
 [serve]
 host = "local.vporton.name"
 port = 8443
