@@ -21,7 +21,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use anyhow::bail;
 
-use crate::config::Config;
+use crate::{config::Config, errors::MyError};
 
 #[derive(clap::Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -33,7 +33,6 @@ struct Args {
 struct State {
     client: reqwest::Client,
     agent: Option<Agent>,
-    response_headers_to_remove: Arc<Vec<http_for_actix::HeaderName>>,
     conn: tokio::sync::Mutex<PgConnection>,
 }
 
@@ -64,7 +63,7 @@ fn serialize_http_request(request: &actix_web::HttpRequest, url: &str, bytes: &a
     Ok([header_part.as_bytes(), b"\n", bytes.to_vec().as_slice()].concat())
 }
 
-async fn serialize_http_response(response: reqwest::Response) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
+async fn serialize_http_response(response: reqwest::Response) -> anyhow::Result<Vec<u8>> {
     let headers_list = response.headers().into_iter()
         .map(|(k, v)| -> anyhow::Result<String> {
             Ok(k.to_string() + "\t" + v.to_str()?)
@@ -75,7 +74,7 @@ async fn serialize_http_response(response: reqwest::Response) -> anyhow::Result<
     let header_part = response.status().as_u16().to_string() + "\n" + &headers_joined;
 
     let bytes = response.bytes().await?;
-    Ok(([header_part.as_bytes(), b"\n", &bytes].concat(), bytes.to_vec()))
+    Ok([header_part.as_bytes(), b"\n", &bytes].concat())
 }
 
 fn deserialize_http_response(data: &[u8]) -> anyhow::Result<actix_web::HttpResponse<Vec<u8>>> {
@@ -229,8 +228,8 @@ async fn proxy(
         }
 
         // We retrieved the response, immediately set and release the cache:
-        let (cached, bytes) = serialize_http_response(reqwest_response).await?;
-        (*cache_lock).set(Some(cached)).await; // FIXME: It seems that I set a wrong value.
+        let cached = serialize_http_response(reqwest_response).await?;
+        (*cache_lock).set(Some(cached)).await;
         std::mem::drop(cache_lock);
 
         let caller_principal = req.headers().get_all("x-principal").next_back();
@@ -299,6 +298,7 @@ async fn proxy(
         for k in hop_by_hop.into_iter()
             .chain(config.response_headers.remove.iter().map(|s| s.as_str()))
             .map(|h| http_for_actix::HeaderName::from_str(h).map_err(|_| InvalidHeaderNameError::default().into()))
+            .collect::<Result<Vec<_>, MyError>>()?
         {
             headers.remove(k);
         }
@@ -309,8 +309,7 @@ async fn proxy(
             );
         }
 
-        // let response_body: Vec<u8> = Vec::from(bytes);
-        Ok(actix_response.set_body(bytes))
+        Ok(actix_response.set_body(body.into())) // TODO: inefficient
     }
 }
 
