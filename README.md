@@ -106,8 +106,7 @@ because HTTPS outcalls support only IPv6).
 
 For a E2E test, run:
 ```
-docker buildx build -t test -f test/e2e/Dockerfile .
-docker run test
+docker-compose -f test/e2e/docker-compose.yml -p join-proxy-test up --build
 ```
 
 ## IC Code

@@ -8,7 +8,7 @@ ENV PATH=$HOME/.local/share/dfx/bin:$PATH
 #RUN $HOME/.local/share/dfx/bin/dfxvm default 0.20.0
 
 RUN apt-get update
-RUN apt-get install -y openssl npm libunwind8 tini postgresql-17 sudo
+RUN apt-get install -y openssl npm libunwind8 tini
 RUN cargo install diesel_cli
 
 RUN npm i -g ic-mops@1.11.1
@@ -58,11 +58,4 @@ ENV PATH=$HOME/.local/share/dfx/bin:$PATH
 # ENV RUST_LOG=info
 ENV RUST_TEST_THREADS=1
 
-ENV DATABASE_URL=postgres://localhost/proxy
-RUN HBA="`sudo -u postgres psql -t -c 'SHOW hba_file' | tr -d '[:space:]'`" \
-    echo "host    all    root    ::1/128    peer" | sudo tee -a "\$HBA"
-# RUN service postgresql restart
-
-RUN diesel migration run
-
-ENTRYPOINT ["/usr/bin/tini", "--", "cargo", "test", "-p", "e2e"]
+ENTRYPOINT /usr/bin/tini -- sh -c "diesel migration run && cargo test -p e2e"

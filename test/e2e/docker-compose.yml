@@ -1,0 +1,15 @@
+services:
+    main:
+        build:
+            context: ../..
+            dockerfile: test/e2e/Dockerfile
+        depends_on:
+            - db
+        environment:
+            DATABASE_URL: postgres://test:123@db/proxy
+    db:
+        image: postgres:18
+        environment:
+            POSTGRES_USER: test
+            POSTGRES_DB: proxy
+            POSTGRES_PASSWORD: 123
