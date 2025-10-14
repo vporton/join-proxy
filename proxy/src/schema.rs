@@ -1,7 +1,7 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
-    add_request_header (id) {
+    add_request_headers (id) {
         id -> Int4,
         server_setup_id -> Int4,
         header_name -> Text,
@@ -10,7 +10,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    add_response_header (id) {
+    add_response_headers (id) {
         id -> Int4,
         server_setup_id -> Int4,
         header_name -> Text,
@@ -19,7 +19,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    remove_request_header (id) {
+    remove_request_headers (id) {
         id -> Int4,
         server_setup_id -> Int4,
         header_name -> Text,
@@ -27,7 +27,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    remove_response_header (id) {
+    remove_response_headers (id) {
         id -> Int4,
         server_setup_id -> Int4,
         header_name -> Text,
@@ -43,7 +43,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    server_setup (id) {
+    server_setups (id) {
         id -> Int4,
         user_id -> Int4,
         show_hit_miss -> Bool,
@@ -62,11 +62,11 @@ diesel::table! {
 }
 
 diesel::allow_tables_to_appear_in_same_query!(
-    add_request_header,
-    add_response_header,
-    remove_request_header,
-    remove_response_header,
+    add_request_headers,
+    add_response_headers,
+    remove_request_headers,
+    remove_response_headers,
     request,
-    server_setup,
+    server_setups,
     users,
 );
