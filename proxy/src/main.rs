@@ -230,7 +230,7 @@ async fn proxy(
 
         // We retrieved the response, immediately set and release the cache:
         let (cached, bytes) = serialize_http_response(reqwest_response).await?;
-        (*cache_lock).set(Some(cached)).await;
+        (*cache_lock).set(Some(cached)).await; // FIXME: It seems that I set a wrong value.
         std::mem::drop(cache_lock);
 
         let caller_principal = req.headers().get_all("x-principal").next_back();
