@@ -5,11 +5,11 @@ mod config;
 use std::{collections::{btree_map::Entry, BTreeMap}, fs::{read_to_string, File}, io::BufReader, iter::once, str::{from_utf8, FromStr}, sync::Arc};
 
 use log::info;
-use rustls::{crypto::{ring, CryptoProvider}, ServerConfig};
+use rustls::{crypto::ring, ServerConfig};
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use actix_web::{http::StatusCode, web::{self, Data}, App, HttpResponse, HttpServer};
 use anyhow::{anyhow, Context};
-use cache::{cache::{BinaryCache, Cache}, mem_cache::BinaryMemCache};
+use cache::{cache::BinaryCache, mem_cache::BinaryMemCache};
 use clap::Parser;
 use errors::{InvalidHeaderNameError, InvalidHeaderValueError, MyCorruptedDBError, MyResult};
 use reqwest::ClientBuilder;

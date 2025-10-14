@@ -49,7 +49,7 @@ where
 {
     type Guard<'a> = tokio::sync::MutexGuard<'a, Option<V>> where K: 'a, V: 'a;
 
-    async fn lock(&mut self, key: &K) -> tokio::sync::MutexGuard<Option<V>> {
+    async fn lock(&'_ mut self, key: &K) -> tokio::sync::MutexGuard<'_, Option<V>> {
         self.map.entry(key.clone())
             .or_insert_with(|| tokio::sync::Mutex::new(None))
             .lock()
