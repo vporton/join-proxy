@@ -184,7 +184,7 @@ async fn proxy(
         info!("Cache hit.");
 
         let mut response = deserialize_http_response(serialized_response.as_slice())?;
-        // if config.response_headers.show_hit_miss { // TODO: Can'ts how `Hit` by default.
+        // if config.response_headers.show_hit_miss { // TODO: Can't show `Hit` by default.
         //     response.headers_mut().append(
         //         http_for_actix::HeaderName::from_str("X-JoinProxy-Response").unwrap(),
         //         http_for_actix::HeaderValue::from_str("Hit").unwrap(),
