@@ -33,7 +33,6 @@ struct Args {
 struct State {
     client: reqwest::Client,
     agent: Option<Agent>,
-    additional_response_headers: Arc<Vec<(http_for_actix::HeaderName, http_for_actix::HeaderValue)>>,
     response_headers_to_remove: Arc<Vec<http_for_actix::HeaderName>>,
     conn: tokio::sync::Mutex<PgConnection>,
 }
@@ -112,14 +111,22 @@ async fn prepare_request(req: &actix_web::HttpRequest, url: String, body: &web::
 {
     // let uri = http::Uri::from_str(url.as_str())?;
     // let host = uri.host().ok_or_else(|| anyhow!("no host"))?;
-    // TODO: a wrong preliminary optimization below:
+    let additional_response_headers = &config.request_headers.add; // FIXME
+    let additional_response_headers = additional_response_headers.into_iter().map(
+        |v| -> MyResult<_> {
+            Ok((
+                http_for_actix::HeaderName::from_str(&v.0).map_err(|_| InvalidHeaderNameError::default())?,
+                http_for_actix::HeaderValue::from_str(&v.1).map_err(|_| InvalidHeaderValueError::default())?
+            ))
+        })
+        .collect::<Result<Vec<_>, _>>()?; // TODO: `collect` is a performance drawback.
     let request_headers = req.headers().into_iter()
         .map(|h| (h.0.clone(), h.1.clone()))
         .filter(|h|
             !config.request_headers.remove.contains(&h.0.to_string()) ||
                 h.0 == http_for_actix::HeaderName::from_static("host"))
         .chain(
-            state.as_ref().additional_response_headers.iter().map(|h| (h.0.clone(), h.1.clone()))
+            additional_response_headers.iter().map(|h| (h.0.clone(), h.1.clone()))
         )
         .into_iter();
     
@@ -177,12 +184,12 @@ async fn proxy(
         info!("Cache hit.");
 
         let mut response = deserialize_http_response(serialized_response.as_slice())?;
-        if config.response_headers.show_hit_miss {
-            response.headers_mut().append(
-                http_for_actix::HeaderName::from_str("X-JoinProxy-Response").unwrap(),
-                http_for_actix::HeaderValue::from_str("Hit").unwrap(),
-            );
-        }
+        // if config.response_headers.show_hit_miss { // TODO: Can'ts how `Hit` by default.
+        //     response.headers_mut().append(
+        //         http_for_actix::HeaderName::from_str("X-JoinProxy-Response").unwrap(),
+        //         http_for_actix::HeaderValue::from_str("Hit").unwrap(),
+        //     );
+        // }
         Ok(response)
     } else {
         info!("Cache miss.");
@@ -274,17 +281,25 @@ async fn proxy(
                         http_for_actix::HeaderValue::from_str("Miss").unwrap(),
                     );
                 }
-            };
-        }
-        if config.response_headers.add_forwarded_from_header {
-            if let Some(addr) = req.head().peer_addr {
-                headers.append(
-                    http_for_actix::HeaderName::from_str("X-Forwarded-For").unwrap(),
-                    http_for_actix::HeaderValue::from_str(&addr.ip().to_string()).unwrap(),
-                );
+                if a_add_forwarded_from_header {
+                    if let Some(addr) = req.head().peer_addr {
+                        headers.append(
+                            http_for_actix::HeaderName::from_str("X-Forwarded-For").unwrap(),
+                            http_for_actix::HeaderValue::from_str(&addr.ip().to_string()).unwrap(),
+                        );
+                    }
+                }
+            } else {
+                headers.remove("date"); // Remove only `Date:` by default.
             }
         }
-        for k in state.response_headers_to_remove.iter() {
+        //  http://tools.ietf.org/html/rfc2616#section-13.5.1
+        let hop_by_hop = ["connection", "keep-alive", "te", "trailers", "transfer-encoding", "upgrade"];
+
+        for k in hop_by_hop.into_iter()
+            .chain(config.response_headers.remove.iter().map(|s| s.as_str()))
+            .map(|h| http_for_actix::HeaderName::from_str(h).map_err(|_| InvalidHeaderNameError::default().into()))
+        {
             headers.remove(k);
         }
         for (k, v) in config.response_headers.add.iter() {
@@ -323,26 +338,6 @@ async fn main() -> anyhow::Result<()> {
     let cache =
         Arc::new(Mutex::new(Box::<BinaryCache>::from(Box::new(BinaryMemCache::new(config.cache.cache_timeout)))));
 
-    let additional_response_headers = &config.request_headers.add;
-    let additional_response_headers = additional_response_headers.into_iter().map(
-        |v| -> MyResult<_> {
-            Ok((
-                http_for_actix::HeaderName::from_str(&v.0).map_err(|_| InvalidHeaderNameError::default())?,
-                http_for_actix::HeaderValue::from_str(&v.1).map_err(|_| InvalidHeaderValueError::default())?
-            ))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let additional_response_headers = Arc::new(additional_response_headers);
-
-    //  http://tools.ietf.org/html/rfc2616#section-13.5.1
-    let hop_by_hop = ["connection", "keep-alive", "te", "trailers", "transfer-encoding", "upgrade"];
-    let response_headers_to_remove =
-        hop_by_hop.into_iter()
-            .chain(config.response_headers.remove.iter().map(|s| s.as_str()))
-            .map(|h| http_for_actix::HeaderName::from_str(h).map_err(|_| InvalidHeaderNameError::default().into()));
-    let response_headers_to_remove = response_headers_to_remove.collect::<MyResult<Vec<_>>>()?;
-    let response_headers_to_remove = Arc::new(response_headers_to_remove);
-
     let agent = {
         if let Some(callback) = &config.callback {
             let mut builder = Agent::builder();
@@ -375,8 +370,6 @@ async fn main() -> anyhow::Result<()> {
         }
         let state = State {
             client: builder.build().unwrap(),
-            additional_response_headers: additional_response_headers.clone(),
-            response_headers_to_remove: response_headers_to_remove.clone(),
             agent: agent.clone(),
             conn: tokio::sync::Mutex::new(PgConnection::establish(&database_url).expect("DB connection")),
         };
