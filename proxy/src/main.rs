@@ -188,8 +188,7 @@ async fn proxy(
     // We lock during the time of downloading from upstream to prevent duplicate requests with identical data.
     let mut cache_lock = cache.lock(&Vec::from(actix_request_hash.as_slice())).await?;
 
-    if let Some(serialized_response) = (*cache_lock).inner().await
-    {
+    if let Some(serialized_response) = (*cache_lock).inner().await {
         std::mem::drop(cache_lock);
         info!("Cache hit.");
 
