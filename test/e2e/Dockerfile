@@ -58,4 +58,4 @@ ENV PATH=$HOME/.local/share/dfx/bin:$PATH
 # ENV RUST_LOG=info
 ENV RUST_TEST_THREADS=1
 
-ENTRYPOINT /usr/bin/tini -- sh -c "diesel migration run && cargo test -p e2e"
+ENTRYPOINT /usr/bin/tini -- sh -c "(cd proxy && diesel migration run) && cargo test -p e2e"
