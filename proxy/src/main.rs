@@ -2,7 +2,7 @@ mod errors;
 mod cache;
 mod config;
 
-use std::{collections::{btree_map::Entry, BTreeMap}, fs::{read_to_string, File}, io::BufReader, str::{from_utf8, FromStr}, sync::Arc};
+use std::{collections::{btree_map::Entry, BTreeMap}, fs::{read_to_string, File}, io::BufReader, iter::once, str::{from_utf8, FromStr}, sync::Arc};
 
 use log::info;
 use rustls::{crypto::{ring, CryptoProvider}, ServerConfig};
@@ -260,7 +260,7 @@ async fn proxy(
             headers.remove(k);
         }
         if let Some(remove) = config.response_headers.remove_per_host.get(&host) {
-            for k in remove.into_iter() {
+            for k in remove.into_iter().map(|s| s.as_str()).chain(once("x-principal")) { // TODO: Should remove only the last `X-Principal`.
                 headers.remove(k);
             }
         }
