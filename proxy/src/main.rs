@@ -164,7 +164,7 @@ async fn proxy(
     let serialized_request = serialize_http_request(&req, path, &body)?;
     let actix_request_hash = Sha256::digest(serialized_request.as_slice());
 
-    let mut cache = (***cache).lock().await;
+    let mut cache = (***cache).lock().await; // FIXME: locked for too long
 
     // We lock during the time of downloading from upstream to prevent duplicate requests with identical data.
     let mut cache_lock = cache.lock(&Vec::from(actix_request_hash.as_slice())).await?;
