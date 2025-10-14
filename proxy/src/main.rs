@@ -1,9 +1,11 @@
 mod errors;
 mod cache;
 mod config;
+mod schema;
+mod models;
 
 use std::{collections::{btree_map::Entry, BTreeMap}, fs::{read_to_string, File}, io::BufReader, str::{from_utf8, FromStr}, sync::Arc};
-
+use diesel::{Connection, ExpressionMethods, PgConnection, QueryDsl, RunQueryDsl};
 use log::info;
 use rustls::{crypto::ring, ServerConfig};
 use rustls_pemfile::{certs, pkcs8_private_keys};
@@ -14,12 +16,12 @@ use clap::Parser;
 use errors::{InvalidHeaderNameError, InvalidHeaderValueError, MyCorruptedDBError, MyResult};
 use reqwest::ClientBuilder;
 use ic_agent::Agent;
-use candid::{Decode, Encode};
+use candid::{Decode, Encode, Principal};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use anyhow::bail;
 
-use crate::config::Config;
+use crate::{config::Config, models::ServerSetup, schema::users::user_principal};
 
 #[derive(clap::Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -33,6 +35,7 @@ struct State {
     agent: Option<Agent>,
     additional_response_headers: Arc<Vec<(http_for_actix::HeaderName, http_for_actix::HeaderValue)>>,
     response_headers_to_remove: Arc<Vec<http_for_actix::HeaderName>>,
+    conn: tokio::sync::Mutex<PgConnection>,
 }
 
 // Two similar functions with different data types follow:
@@ -223,11 +226,54 @@ async fn proxy(
         (*cache_lock).set(Some(cached)).await;
         std::mem::drop(cache_lock);
 
-        if config.response_headers.show_hit_miss {
-            headers.append(
-                http_for_actix::HeaderName::from_str("X-JoinProxy-Response").unwrap(),
-                http_for_actix::HeaderValue::from_str("Miss").unwrap(),
-            );
+        let caller_principal = req.headers().get("x-principal"); // TODO: Use the last header, remove it.
+        if config.require_x_principal && caller_principal.is_none() {
+            return Err(anyhow!("missing X-Principal header").into());
+        }
+        if let Some(caller_principal) = caller_principal {
+            let caller_principal = Principal::from_text(caller_principal.to_str()?)
+                .map_err(|_| anyhow!("can't parse X-Principal"))?;
+    
+            use self::schema::server_setups::dsl::*;
+            use self::schema::users::dsl::*;
+            let serve_config_uid = req.headers().get("x-config"); // TODO: Use the last header, remove it.
+            if let Some(serve_config_uid) = serve_config_uid {
+                let serve_config_uid = serve_config_uid.to_str()?;
+                // TODO: Should JOIN two following SQL requests into one?
+                let (
+                    a_user_id,
+                    a_show_hit_miss,
+                    a_add_forwarded_from_header,
+                    a_connect_timeout,
+                    a_read_timeout,
+                    a_total_timeout,
+                ) = server_setups
+                    .filter(guid.eq(serve_config_uid))
+                    .select(    (
+                        user_id,
+                        show_hit_miss,
+                        add_forwarded_from_header,
+                        connect_timeout,
+                        read_timeout,
+                        total_timeout,
+                    ))
+                    .get_result::<(i32, bool, bool, i32, i32, i32)>(&mut *state.conn.lock().await)
+                    .map_err(|_| anyhow!(format!("no serve config with uid {serve_config_uid}")))?;
+                let a_user_principal = users.filter(self::schema::users::dsl::id.eq(a_user_id))
+                    .select(user_principal)
+                    .get_result::<Vec<u8>>(&mut *state.conn.lock().await)
+                    .map_err(|_| anyhow!(format!("no user with id {a_user_id}")))?;
+                if a_user_principal != caller_principal.as_slice() {
+                    return Err(anyhow!("access denied").into());
+                }
+            };
+
+            if a_show_hit_miss {
+                headers.append(
+                    http_for_actix::HeaderName::from_str("X-JoinProxy-Response").unwrap(),
+                    http_for_actix::HeaderValue::from_str("Miss").unwrap(),
+                );
+            }
         }
         if config.response_headers.add_forwarded_from_header {
             if let Some(addr) = req.head().peer_addr {
@@ -314,6 +360,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let (cert_file, key_file) = (config.serve.cert_file.clone(), config.serve.key_file.clone());
+    let database_url = std::env::var("DATABASE_URL").context("DATABASE_URL must be set")?;
     let is_https = config.serve.https;
     let server = HttpServer::new(move || {
         let mut builder = ClientBuilder::new();
@@ -331,6 +378,7 @@ async fn main() -> anyhow::Result<()> {
             additional_response_headers: additional_response_headers.clone(),
             response_headers_to_remove: response_headers_to_remove.clone(),
             agent: agent.clone(),
+            conn: tokio::sync::Mutex::new(PgConnection::establish(&database_url).expect("DB connection")),
         };
         App::new().service(
             web::scope("")

@@ -45,6 +45,7 @@ diesel::table! {
 diesel::table! {
     server_setups (id) {
         id -> Int4,
+        guid -> Text,
         user_id -> Int4,
         show_hit_miss -> Bool,
         add_forwarded_from_header -> Bool,

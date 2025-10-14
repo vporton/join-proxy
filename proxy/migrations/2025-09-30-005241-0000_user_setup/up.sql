@@ -6,7 +6,8 @@ CREATE TABLE users (
 CREATE INDEX users_user_principal_idx ON users (user_principal);
 
 CREATE TABLE server_setups (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
+    guid TEXT NOT NULL,
     user_id INT NOT NULL,
     show_hit_miss BOOLEAN NOT NULL,
     add_forwarded_from_header BOOLEAN NOT NULL,
