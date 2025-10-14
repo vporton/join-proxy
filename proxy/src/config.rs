@@ -33,18 +33,6 @@ pub struct RequestHeaders {
 }
 
 #[derive(Clone, Deserialize, Debug)]
-pub struct ResponseHeaders {
-    #[serde(default="default_remove")]
-    pub remove: Vec<String>,
-    #[serde(default="default_add")]
-    pub add: Vec<(String, String)>,
-    #[serde(default="default_show_hit_miss")]
-    pub show_hit_miss: bool,
-    #[serde(default="default_add_forwarded_from_header")]
-    pub add_forwarded_from_header: bool,
-}
-
-#[derive(Clone, Deserialize, Debug)]
 pub struct CacheConfig {
     #[serde(deserialize_with = "parse_duration")]
     pub cache_timeout: Duration,
@@ -69,7 +57,6 @@ pub struct Config {
     pub require_x_principal: bool,
     pub cache: CacheConfig,
     pub request_headers: RequestHeaders,
-    pub response_headers: ResponseHeaders,
     pub upstream_timeouts: UpstreamTimeouts,
     pub callback: Option<Callback>,
 }
@@ -94,10 +81,6 @@ fn default_https() -> bool {
     false
 }
 
-fn default_show_hit_miss() -> bool {
-    false
-}
-
 fn default_upstream_connect_timeout() -> Option<Duration> {
     Some(Duration::from_secs(10))
 }
@@ -108,10 +91,6 @@ fn default_upstream_read_timeout() -> Option<Duration> {
 
 fn default_upstream_total_timeout() -> Option<Duration> {
     Some(Duration::from_secs(120)) // I set it big, for the use case of OpenAI API
-}
-
-fn default_add_forwarded_from_header() -> bool {
-    false // Isn't it useless?
 }
 
 fn default_ic_local() -> bool {

@@ -1,5 +1,5 @@
 use diesel::{QueryableByName, Selectable};
-use crate::schema::{server_setups, users};
+use crate::schema::{server_setups, users, add_response_headers, remove_response_headers};
 
 #[derive(Selectable, QueryableByName)]
 pub struct User {
@@ -10,7 +10,7 @@ pub struct User {
 
 #[derive(Selectable, QueryableByName)]
 pub struct ServerSetup {
-    // id: i64,
+    id: i64,
     // guid: String, // TODO: BYTEA
     user_id: i32,
     show_hit_miss: bool,
@@ -18,4 +18,15 @@ pub struct ServerSetup {
     connect_timeout: i32,
     read_timeout: i32,
     total_timeout: i32,
+}
+
+#[derive(Selectable, QueryableByName)]
+pub struct RemoveResponseHeader {
+    header_name: String,
+}
+
+#[derive(Selectable, QueryableByName)]
+pub struct AddResponseHeader {
+    header_name: String,
+    header_value: String,
 }

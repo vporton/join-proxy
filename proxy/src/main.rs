@@ -243,11 +243,14 @@ async fn proxy(
     
             use self::schema::server_setups::dsl::*;
             use self::schema::users::dsl::*;
+            use self::schema::add_response_headers::dsl::*;
+            use self::schema::remove_response_headers::dsl::*;
             let serve_config_uid = req.headers().get("x-config"); // TODO: Use the last header, remove it.
             if let Some(serve_config_uid) = serve_config_uid {
                 let serve_config_uid = serve_config_uid.to_str()?;
                 // TODO: Should JOIN two following SQL requests into one?
                 let (
+                    a_server_setup_id,
                     a_user_id,
                     a_show_hit_miss,
                     a_add_forwarded_from_header,
@@ -257,6 +260,7 @@ async fn proxy(
                 ) = server_setups
                     .filter(guid.eq(serve_config_uid))
                     .select(    (
+                        self::schema::server_setups::dsl::id,
                         user_id,
                         show_hit_miss,
                         add_forwarded_from_header,
@@ -264,7 +268,7 @@ async fn proxy(
                         read_timeout,
                         total_timeout,
                     ))
-                    .get_result::<(i32, bool, bool, i32, i32, i32)>(&mut *state.conn.lock().await)
+                    .get_result::<(i32, i32, bool, bool, i32, i32, i32)>(&mut *state.conn.lock().await)
                     .map_err(|_| anyhow!(format!("no serve config with uid {serve_config_uid}")))?;
                 let a_user_principal = users.filter(self::schema::users::dsl::id.eq(a_user_id))
                     .select(user_principal)
@@ -288,25 +292,40 @@ async fn proxy(
                         );
                     }
                 }
+                let headers_to_remove = remove_response_headers
+                    .filter(self::schema::remove_response_headers::dsl::server_setup_id.eq(a_server_setup_id))
+                    .select(
+                        self::schema::remove_response_headers::dsl::header_name,
+                    )
+                    .get_results::<String>(&mut *state.conn.lock().await)
+                    .map_err(|_| anyhow!(format!("cannot read DB")))?
+                    .into_iter();
+                //  http://tools.ietf.org/html/rfc2616#section-13.5.1
+                let hop_by_hop = ["connection", "keep-alive", "te", "trailers", "transfer-encoding", "upgrade"];
+                for k in hop_by_hop.into_iter().map(|s| Ok(http_for_actix::HeaderName::from_static(s)))
+                    .chain(headers_to_remove.map(|s| http_for_actix::HeaderName::from_str(&s).map_err(|_| InvalidHeaderNameError::default().into())))
+                    .collect::<Result<Vec<_>, MyError>>()?
+                {
+                    headers.remove(k);
+                }
+                let headers_to_add = add_response_headers
+                    .filter(self::schema::add_response_headers::dsl::server_setup_id.eq(a_server_setup_id))
+                    .select((
+                        self::schema::add_response_headers::dsl::header_name,
+                        self::schema::add_response_headers::dsl::header_value,
+                    ))
+                    .get_results::<(String, String)>(&mut *state.conn.lock().await)
+                    .map_err(|_| anyhow!(format!("cannot read DB")))?
+                    .into_iter();
+                for (k, v) in headers_to_add {
+                    headers.append(
+                        http_for_actix::HeaderName::from_str(&k).map_err(|_| InvalidHeaderNameError::default())?,
+                        http_for_actix::HeaderValue::from_str(&v).map_err(|_| InvalidHeaderValueError::default())?
+                    );
+                }
             } else {
                 headers.remove("date"); // Remove only `Date:` by default.
             }
-        }
-        //  http://tools.ietf.org/html/rfc2616#section-13.5.1
-        let hop_by_hop = ["connection", "keep-alive", "te", "trailers", "transfer-encoding", "upgrade"];
-
-        for k in hop_by_hop.into_iter()
-            .chain(config.response_headers.remove.iter().map(|s| s.as_str()))
-            .map(|h| http_for_actix::HeaderName::from_str(h).map_err(|_| InvalidHeaderNameError::default().into()))
-            .collect::<Result<Vec<_>, MyError>>()?
-        {
-            headers.remove(k);
-        }
-        for (k, v) in config.response_headers.add.iter() {
-            headers.append(
-                http_for_actix::HeaderName::from_str(k).map_err(|_| InvalidHeaderNameError::default())?,
-                http_for_actix::HeaderValue::from_str(&v).map_err(|_| InvalidHeaderValueError::default())?
-            );
         }
 
         Ok(actix_response.set_body(body.into())) // TODO: inefficient
