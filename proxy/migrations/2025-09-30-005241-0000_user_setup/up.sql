@@ -8,13 +8,14 @@ CREATE INDEX user_user_principal_idx ON users (user_principal);
 CREATE TABLE server_setup (
     id SERIAL PRIMARY KEY,
     user_id INT NOT NULL,
-    server_prefix TEXT NOT NULL, -- FIXME
     show_hit_miss BOOLEAN NOT NULL,
-    add_forwarded_from_header BOOLEAN NOT NULL
+    add_forwarded_from_header BOOLEAN NOT NULL,
+    connect_timeout INT NOT NULL,
+    read_timeout INT NOT NULL,
+    total_timeout INT NOT NULL
 );
 
 CREATE INDEX server_setup_user_id_idx ON server_setup (user_id);
-CREATE INDEX server_setup_server_prefix_idx ON server_setup (server_prefix);
 
 CREATE TABLE add_request_header (
     id SERIAL PRIMARY KEY,

@@ -29,9 +29,11 @@ diesel::table! {
     server_setup (id) {
         id -> Int4,
         user_id -> Int4,
-        server_prefix -> Text,
         show_hit_miss -> Bool,
         add_forwarded_from_header -> Bool,
+        connect_timeout -> Int4,
+        read_timeout -> Int4,
+        total_timeout -> Int4,
     }
 }
 
