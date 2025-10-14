@@ -10,7 +10,24 @@ diesel::table! {
 }
 
 diesel::table! {
+    add_response_header (id) {
+        id -> Int4,
+        server_setup_id -> Int4,
+        header_name -> Text,
+        header_value -> Text,
+    }
+}
+
+diesel::table! {
     remove_request_header (id) {
+        id -> Int4,
+        server_setup_id -> Int4,
+        header_name -> Text,
+    }
+}
+
+diesel::table! {
+    remove_response_header (id) {
         id -> Int4,
         server_setup_id -> Int4,
         header_name -> Text,
@@ -46,7 +63,9 @@ diesel::table! {
 
 diesel::allow_tables_to_appear_in_same_query!(
     add_request_header,
+    add_response_header,
     remove_request_header,
+    remove_response_header,
     request,
     server_setup,
     users,

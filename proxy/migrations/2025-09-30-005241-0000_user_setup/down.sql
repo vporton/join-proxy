@@ -1,8 +1,11 @@
+DROP INDEX remove_response_header_server_setup_id_idx;
+DROP TABLE remove_response_header;
+DROP INDEX add_response_header_server_setup_id_idx;
+DROP TABLE add_response_header;
 DROP INDEX remove_request_header_server_setup_id_idx;
 DROP TABLE remove_request_header;
 DROP INDEX add_request_header_server_setup_id_idx;
 DROP TABLE add_request_header;
-DROP INDEX server_setup_server_prefix_idx;
 DROP INDEX server_setup_user_id_idx;
 DROP TABLE server_setup;
 DROP TABLE users;
