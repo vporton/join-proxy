@@ -63,7 +63,7 @@ fn serialize_http_request(request: &actix_web::HttpRequest, url: &str, bytes: &a
     Ok([header_part.as_bytes(), b"\n", bytes.to_vec().as_slice()].concat())
 }
 
-async fn serialize_http_response(response: reqwest::Response) -> anyhow::Result<Vec<u8>> {
+async fn serialize_http_response(response: reqwest::Response) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
     let headers_list = response.headers().into_iter()
         .map(|(k, v)| -> anyhow::Result<String> {
             Ok(k.to_string() + "\t" + v.to_str()?)
@@ -74,7 +74,7 @@ async fn serialize_http_response(response: reqwest::Response) -> anyhow::Result<
     let header_part = response.status().as_u16().to_string() + "\n" + &headers_joined;
 
     let bytes = response.bytes().await?;
-    Ok([header_part.as_bytes(), b"\n", &bytes].concat())
+    Ok(([header_part.as_bytes(), b"\n", &bytes].concat(), bytes.to_vec()))
 }
 
 fn deserialize_http_response(data: &[u8]) -> anyhow::Result<actix_web::HttpResponse<Vec<u8>>> {
@@ -228,7 +228,7 @@ async fn proxy(
         }
 
         // We retrieved the response, immediately set and release the cache:
-        let cached = serialize_http_response(reqwest_response).await?;
+        let (cached, response_body) = serialize_http_response(reqwest_response).await?;
         (*cache_lock).set(Some(cached)).await;
         std::mem::drop(cache_lock);
 
@@ -328,7 +328,7 @@ async fn proxy(
             }
         }
 
-        Ok(actix_response.set_body(body.into())) // TODO: inefficient
+        Ok(actix_response.set_body(response_body)) // TODO: inefficient
     }
 }
 
