@@ -356,7 +356,7 @@ async fn proxy(
     
             // TODO: duplicate block of code
             let method = reqwest::Method::from_bytes(req.method().as_str().as_bytes())?;
-            let builder = state.client.request(method, base_url).headers(request_headers).body(Vec::from(body.as_ref()));
+            let builder = state.client.request(method, base_url + path).headers(request_headers).body(Vec::from(body.as_ref()));
             let reqwest_response = state.client.execute(builder.build()?).await?;
             info!("Upstream status: {}", reqwest_response.status());
             let status = reqwest_response.status().as_u16();
