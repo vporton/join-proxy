@@ -19,3 +19,5 @@ TODO:
 - Add `x-nonce`.
 
 - Test that access to keys stored in the DB is secure.
+
+- Use `r2d2`.
