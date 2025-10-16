@@ -25,14 +25,6 @@ pub struct UpstreamTimeouts {
 }
 
 #[derive(Clone, Deserialize, Debug)]
-pub struct RequestHeaders {
-    #[serde(default="default_remove")]
-    pub remove: Vec<String>,
-    #[serde(default="default_add")]
-    pub add: Vec<(String, String)>,
-}
-
-#[derive(Clone, Deserialize, Debug)]
 pub struct CacheConfig {
     #[serde(deserialize_with = "parse_duration")]
     pub cache_timeout: Duration,
@@ -56,7 +48,6 @@ pub struct Config {
     pub our_secret: Option<String>, // simple Bearer authentication
     pub require_x_principal: bool,
     pub cache: CacheConfig,
-    pub request_headers: RequestHeaders,
     pub upstream_timeouts: UpstreamTimeouts,
     pub callback: Option<Callback>,
 }

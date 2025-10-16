@@ -105,47 +105,6 @@ fn obtain_upstream_base_url(req: &actix_web::HttpRequest) -> anyhow::Result<Stri
     Ok("https://".to_string() + host)
 }
 
-async fn prepare_request(req: &actix_web::HttpRequest, url: String, body: &web::Bytes, config: &Data<Config>, state: &Data<State>)
-    -> MyResult<reqwest::Request>
-{
-    // let uri = http::Uri::from_str(url.as_str())?;
-    // let host = uri.host().ok_or_else(|| anyhow!("no host"))?;
-    let additional_response_headers = &config.request_headers.add; // FIXME
-    let additional_response_headers = additional_response_headers.into_iter().map(
-        |v| -> MyResult<_> {
-            Ok((
-                http_for_actix::HeaderName::from_str(&v.0).map_err(|_| InvalidHeaderNameError::default())?,
-                http_for_actix::HeaderValue::from_str(&v.1).map_err(|_| InvalidHeaderValueError::default())?
-            ))
-        })
-        .collect::<Result<Vec<_>, _>>()?; // TODO: `collect` is a performance drawback.
-    let request_headers = req.headers().into_iter()
-        .map(|h| (h.0.clone(), h.1.clone()))
-        .filter(|h|
-            !config.request_headers.remove.contains(&h.0.to_string()) ||
-                h.0 == http_for_actix::HeaderName::from_static("host"))
-        .chain(
-            additional_response_headers.iter().map(|h| (h.0.clone(), h.1.clone()))
-        )
-        .into_iter();
-    
-    let method = reqwest::Method::from_bytes(req.method().as_str().as_bytes())?;
-    let headers = http::HeaderMap::from_iter(
-        request_headers
-            .map(|h| -> MyResult<_> {
-                Ok((
-                    http::HeaderName::from_str(h.0.as_str()).map_err(|_| InvalidHeaderNameError::default())?,
-                    http::HeaderValue::from_str(h.1.to_str()?).map_err(|_| InvalidHeaderValueError::default())?,
-                ))
-            })
-            .into_iter()
-            .collect::<MyResult<Vec<_>>>()?
-    );
-    let builder = state.client.request(method, url).headers(headers).body(Vec::from(body.as_ref()));
-    // Ok((builder.build()?, host.to_string()))
-    Ok(builder.build()?)
-}
-
 async fn proxy(
     req: actix_web::HttpRequest,
     body: web::Bytes,
@@ -212,28 +171,9 @@ async fn proxy(
         }
 
         let base_url = obtain_upstream_base_url(&req)?;
-        let reqwest = prepare_request(&req, base_url + path, &body, &config, &state).await?;
-        let reqwest_response = state.client.execute(reqwest).await?;
-        info!("Upstream status: {}", reqwest_response.status());
-        let status = reqwest_response.status().as_u16();
-
-        let mut actix_response = actix_web::HttpResponse::new(
-            StatusCode::from_u16(status)?);
-        let headers = actix_response.headers_mut();
-        for (k, v) in reqwest_response.headers() {
-            headers.append(
-                http_for_actix::HeaderName::from_str(k.as_str()).map_err(|_| InvalidHeaderNameError::default())?,
-                http_for_actix::HeaderValue::from_str(v.to_str()?).map_err(|_| InvalidHeaderValueError::default())?,
-            );
-        }
-
-        // We retrieved the response, immediately set and release the cache:
-        let (cached, response_body) = serialize_http_response(reqwest_response).await?;
-        (*cache_lock).set(Some(cached)).await;
-        std::mem::drop(cache_lock);
 
         let caller_principal = req.headers().get_all("x-principal").next_back();
-        headers.remove("x-principal"); // TODO: Should remove only the last `X-Principal`. (Or is it removed by `next_back()`?)
+        req.headers().remove("x-principal"); // TODO: Should remove only the last `X-Principal`. (Or is it removed by `next_back()`?)
         if config.require_x_principal && caller_principal.is_none() {
             return Err(anyhow!("missing X-Principal header").into());
         }
@@ -245,6 +185,8 @@ async fn proxy(
             use self::schema::users::dsl::*;
             use self::schema::add_response_headers::dsl::*;
             use self::schema::remove_response_headers::dsl::*;
+            use self::schema::add_request_headers::dsl::*;
+            use self::schema::remove_request_headers::dsl::*;
             let serve_config_uid = req.headers().get("x-config"); // TODO: Use the last header, remove it.
             if let Some(serve_config_uid) = serve_config_uid {
                 let serve_config_uid = serve_config_uid.to_str()?;
@@ -278,21 +220,78 @@ async fn proxy(
                     return Err(anyhow!("access denied").into());
                 }
 
+                let additional_request_headers =  add_request_headers
+                    .filter(self::schema::add_request_headers::dsl::server_setup_id.eq(a_server_setup_id))
+                    .select((
+                        self::schema::add_request_headers::dsl::header_name,
+                        self::schema::add_request_headers::dsl::header_value,
+                    ))
+                    .get_results::<(String, String)>(&mut *state.conn.lock().await)
+                    .map_err(|_| anyhow!(format!("cannot read DB")))?
+                    .into_iter()
+                    .map(|h| (
+                        // TODO: `unwrap()`
+                        http_for_actix::HeaderName::from_str(&h.0).unwrap(),
+                        http_for_actix::HeaderValue::from_str(&h.1).unwrap(),
+                    ))
+                    .collect::<Vec<_>>(); // TODO: Can this be refactored without `collect`?
+                let request_headers_to_remove = remove_request_headers
+                    .filter(self::schema::remove_request_headers::dsl::server_setup_id.eq(a_server_setup_id))
+                    .select(
+                        self::schema::remove_request_headers::dsl::header_name,
+                    )
+                    .get_results::<String>(&mut *state.conn.lock().await)
+                    .map_err(|_| anyhow!(format!("cannot read DB")))?;
+                let request_headers = req.headers().into_iter()
+                    .filter(|h|
+                        !request_headers_to_remove.contains(&h.0.to_string()) ||
+                            h.0 == http_for_actix::HeaderName::from_static("host"))
+                    .chain(
+                        additional_request_headers.into_iter().map(|h| (&h.0, &h.1))
+                    );
+                let request_headers = http::HeaderMap::from_iter(
+                    request_headers
+                        .map(|h| -> MyResult<_> {
+                            Ok((
+                                http::HeaderName::from_str(h.0.as_str()).map_err(|_| InvalidHeaderNameError::default())?,
+                                http::HeaderValue::from_str(h.1.to_str()?).map_err(|_| InvalidHeaderValueError::default())?,
+                            ))
+                        })
+                        .into_iter()
+                        .collect::<MyResult<Vec<_>>>()?
+                );
+                    
+                let method = reqwest::Method::from_bytes(req.method().as_str().as_bytes())?;
+                let builder = state.client.request(method, req.uri().into()).headers(request_headers).body(Vec::from(body.as_ref()));
+                let reqwest_response = state.client.execute(builder.build()?).await?;
+                info!("Upstream status: {}", reqwest_response.status());
+                let status = reqwest_response.status().as_u16();
+
+                let mut actix_response = actix_web::HttpResponse::new(
+                    StatusCode::from_u16(status)?);
+                let response_headers = actix_response.headers_mut();
+                for (k, v) in reqwest_response.headers() {
+                    response_headers.append(
+                        http_for_actix::HeaderName::from_str(k.as_str()).map_err(|_| InvalidHeaderNameError::default())?,
+                        http_for_actix::HeaderValue::from_str(v.to_str()?).map_err(|_| InvalidHeaderValueError::default())?,
+                    );
+                }
+        
                 if a_show_hit_miss {
-                    headers.append(
+                    response_headers.append(
                         http_for_actix::HeaderName::from_str("X-JoinProxy-Response").unwrap(),
                         http_for_actix::HeaderValue::from_str("Miss").unwrap(),
                     );
                 }
                 if a_add_forwarded_from_header {
                     if let Some(addr) = req.head().peer_addr {
-                        headers.append(
+                        response_headers.append(
                             http_for_actix::HeaderName::from_str("X-Forwarded-For").unwrap(),
                             http_for_actix::HeaderValue::from_str(&addr.ip().to_string()).unwrap(),
                         );
                     }
                 }
-                let headers_to_remove = remove_response_headers
+                let response_headers_to_remove = remove_response_headers
                     .filter(self::schema::remove_response_headers::dsl::server_setup_id.eq(a_server_setup_id))
                     .select(
                         self::schema::remove_response_headers::dsl::header_name,
@@ -303,12 +302,12 @@ async fn proxy(
                 //  http://tools.ietf.org/html/rfc2616#section-13.5.1
                 let hop_by_hop = ["connection", "keep-alive", "te", "trailers", "transfer-encoding", "upgrade"];
                 for k in hop_by_hop.into_iter().map(|s| Ok(http_for_actix::HeaderName::from_static(s)))
-                    .chain(headers_to_remove.map(|s| http_for_actix::HeaderName::from_str(&s).map_err(|_| InvalidHeaderNameError::default().into())))
+                    .chain(response_headers_to_remove.map(|s| http_for_actix::HeaderName::from_str(&s).map_err(|_| InvalidHeaderNameError::default().into())))
                     .collect::<Result<Vec<_>, MyError>>()?
                 {
-                    headers.remove(k);
+                    response_headers.remove(k);
                 }
-                let headers_to_add = add_response_headers
+                let response_headers_to_add = add_response_headers
                     .filter(self::schema::add_response_headers::dsl::server_setup_id.eq(a_server_setup_id))
                     .select((
                         self::schema::add_response_headers::dsl::header_name,
@@ -317,16 +316,21 @@ async fn proxy(
                     .get_results::<(String, String)>(&mut *state.conn.lock().await)
                     .map_err(|_| anyhow!(format!("cannot read DB")))?
                     .into_iter();
-                for (k, v) in headers_to_add {
-                    headers.append(
+                for (k, v) in response_headers_to_add {
+                    response_headers.append(
                         http_for_actix::HeaderName::from_str(&k).map_err(|_| InvalidHeaderNameError::default())?,
                         http_for_actix::HeaderValue::from_str(&v).map_err(|_| InvalidHeaderValueError::default())?
                     );
                 }
             } else {
-                headers.remove("date"); // Remove only `Date:` by default.
+                // request_headers.remove("date"); // Remove only `Date:` by default. // TODO
             }
         }
+
+        // We retrieved the response, immediately set and release the cache:
+        let (cached, response_body) = serialize_http_response(reqwest_response).await?;
+        (*cache_lock).set(Some(cached)).await;
+        std::mem::drop(cache_lock);
 
         Ok(actix_response.set_body(response_body)) // TODO: inefficient
     }
