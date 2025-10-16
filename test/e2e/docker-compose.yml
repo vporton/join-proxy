@@ -4,15 +4,20 @@ services:
             context: ../..
             dockerfile: test/e2e/Dockerfile
         depends_on:
-            - db
+            db:
+                condition: service_healthy
         environment:
             DATABASE_URL: postgres://test:123@db/proxy
     db:
         image: postgres:18
-        restart: always
-        # entrypoint: postgres /usr/lib/postgresql/18/bin/postgres -D /var/lib/postgresql/18/main -c config_file=/etc/postgresql/18/main/postgresql.conf
+        # restart: always
         environment:
             POSTGRES_USER: test
             POSTGRES_DB: proxy
             POSTGRES_PASSWORD: 123
             POSTGRES_HOST_AUTH_METHOD: trust
+        healthcheck:
+            test: CMD echo 123 | psql -U test -W -d proxy -h localhost -p 5432
+            interval: 1s
+            timeout: 2s
+            retries: 8
