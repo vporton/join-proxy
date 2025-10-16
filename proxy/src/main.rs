@@ -170,7 +170,7 @@ async fn proxy(
             }
         }
 
-        let base_url = obtain_upstream_base_url(&req)?; // FIXME: Use this.
+        let base_url = obtain_upstream_base_url(&req)?;
 
         let caller_principal = req.headers().get_all("x-principal").next_back();
         // req.headers().remove("x-principal"); // TODO: Should remove only the last `X-Principal`. (Or is it removed by `next_back()`?)
@@ -355,7 +355,7 @@ async fn proxy(
     
             // TODO: duplicate block of code
             let method = reqwest::Method::from_bytes(req.method().as_str().as_bytes())?;
-            let builder = state.client.request(method, req.uri().to_string()).headers(request_headers).body(Vec::from(body.as_ref()));
+            let builder = state.client.request(method, base_url).headers(request_headers).body(Vec::from(body.as_ref()));
             let reqwest_response = state.client.execute(builder.build()?).await?;
             info!("Upstream status: {}", reqwest_response.status());
             let status = reqwest_response.status().as_u16();
