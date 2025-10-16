@@ -24,7 +24,7 @@ struct TestServerArgs {
     arg: String,
 }
 
-async fn test_page(req: HttpRequest, args: Query<TestServerArgs>, body: web::Bytes) -> Result<HttpResponse, Box<(dyn std::error::Error + 'static)>> {
+async fn test_page(req: HttpRequest, args: Query<TestServerArgs>, body: web::Bytes) -> Result<HttpResponse, Box<dyn std::error::Error + 'static>> {
     let b = body.try_into_bytes().or_else(|_| Err(anyhow!("cannot read body")))?;
     let res = format!("path={}&arg={}&body={}", req.uri().path(), args.arg, String::from_utf8(Vec::from(&*b))?);
     info!("Test server serving: {}", req.uri().path_and_query().ok_or_else(|| anyhow!("error in path or query"))?);
@@ -33,7 +33,7 @@ async fn test_page(req: HttpRequest, args: Query<TestServerArgs>, body: web::Byt
         .body(res))
 }
 
-async fn return_headers(req: HttpRequest) -> Result<HttpResponse, Box<(dyn std::error::Error + 'static)>> {
+async fn return_headers(req: HttpRequest) -> Result<HttpResponse, Box<dyn std::error::Error + 'static>> {
     let mut res = "".to_string();
     for (k, v) in req.headers() {
         res += format!("{}: {}\n", k.as_str(), v.to_str()?).as_str();
