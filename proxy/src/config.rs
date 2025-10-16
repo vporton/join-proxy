@@ -52,14 +52,6 @@ pub struct Config {
     pub callback: Option<Callback>,
 }
 
-fn default_remove() -> Vec<String> {
-    Vec::new()
-}
-
-fn default_add() -> Vec<(String, String)> {
-    Vec::new()
-}
-
 fn default_host() -> String {
     "localhost".to_string()
 }

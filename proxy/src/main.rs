@@ -141,7 +141,7 @@ async fn proxy(
         std::mem::drop(cache_lock);
         info!("Cache hit.");
 
-        let mut response = deserialize_http_response(serialized_response.as_slice())?;
+        let /*mut*/ response = deserialize_http_response(serialized_response.as_slice())?;
         // if config.response_headers.show_hit_miss { // TODO: Can't show `Hit` by default.
         //     response.headers_mut().append(
         //         http_for_actix::HeaderName::from_str("X-JoinProxy-Response").unwrap(),
@@ -204,9 +204,10 @@ async fn proxy(
                 a_user_id,
                 a_show_hit_miss,
                 a_add_forwarded_from_header,
-                a_connect_timeout,
-                a_read_timeout,
-                a_total_timeout,
+                // TODO:
+                // a_connect_timeout,
+                // a_read_timeout,
+                // a_total_timeout,
             ) = server_setups
                 .filter(guid.eq(serve_config_uid))
                 .select(    (
@@ -214,11 +215,11 @@ async fn proxy(
                     user_id,
                     show_hit_miss,
                     add_forwarded_from_header,
-                    connect_timeout,
-                    read_timeout,
-                    total_timeout,
+                    // connect_timeout,
+                    // read_timeout,
+                    // total_timeout,
                 ))
-                .get_result::<(i32, i32, bool, bool, i32, i32, i32)>(&mut *state.conn.lock().await)
+                .get_result::<(i32, i32, bool, bool/*, i32, i32, i32*/)>(&mut *state.conn.lock().await)
                 .map_err(|_| anyhow!(format!("no serve config with uid {serve_config_uid}")))?;
             let a_user_principal = users.filter(self::schema::users::dsl::id.eq(a_user_id))
                 .select(user_principal)
