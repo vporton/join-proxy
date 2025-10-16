@@ -4,30 +4,30 @@ version = "0.0.1"
 edition = "2021"
 
 [dependencies]
-actix = "0.13.3"
-actix-web = { version = "4.5.1", features = ["macros", "http2", "rustls-0_23"] }
-anyhow = "1.0.83"
-bytes = "1.6.0"
-clap = { version = "4.5.4", features = ["derive"] }
-derive_more = "0.99.17"
-http = "1.1.0"
-http_for_actix = { version = "0.2.11", package = "http" }
-log = "0.4.21"
-serde = "1.0.201"
-serde_derive = "1.0.201"
-serde_json = "1.0.117"
-sha2 = "0.10.8"
-thiserror = "1.0.60"
-ic-agent = "0.36.0"
+actix = "0.13.5"
+actix-web = { version = "4.11.0", features = ["macros", "http2", "rustls-0_23"] }
+anyhow = "1.0.100"
+bytes = "1.10.1"
+clap = { version = "4.5.49", features = ["derive"] }
+derive_more = "2.0.1"
+http = "1.3.1"
+http_for_actix = { version = "0.2.12", package = "http" }
+log = "0.4.28"
+serde = "1.0.228"
+serde_derive = "1.0.228"
+serde_json = "1.0.145"
+sha2 = "0.10.9"
+thiserror = "2.0.17"
+ic-agent = "0.44.2"
 base64 = "0.22.1"
-tokio = "1.37.0"
-async-trait = "0.1.80"
-candid = { version = "0.10.8", features = ["value"] }
-toml = "0.8.13"
-rustls = "0.23.7"
-rustls-pemfile = "2.1.2"
-env_logger = "0.11.3"
+tokio = "1.48.0"
+async-trait = "0.1.89"
+candid = { version = "0.10.20", features = ["value"] }
+toml = "0.9.8"
+rustls = "0.23.32"
+rustls-pemfile = "2.2.0"
+env_logger = "0.11.8"
 diesel = { version = "2.3.2", features = ["postgres", "chrono", "uuid", "r2d2", "32-column-tables"] }
-reqwest = { version = "0.12.23", features = ["http2", "default-tls", "charset", "cookies", "gzip", "brotli", "zstd", "deflate", "json", "multipart", "stream", "system-proxy"] }
+reqwest = { version = "0.12.24", features = ["http2", "default-tls", "charset", "cookies", "gzip", "brotli", "zstd", "deflate", "json", "multipart", "stream", "system-proxy"] }
 # lock_api = "0.4.12"
 # future-parking_lot = "0.3.3"
