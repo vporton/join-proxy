@@ -74,7 +74,7 @@ async fn serialize_http_response(response: reqwest::Response) -> anyhow::Result<
     let header_part = response.status().as_u16().to_string() + "\n" + &headers_joined;
 
     let bytes = response.bytes().await?;
-    Ok(([header_part.as_bytes(), b"\n", &bytes].concat(), bytes.to_vec()))
+    Ok(([header_part.as_bytes(), b"\n", &bytes].concat(), bytes.to_vec())) // TODO: `bytes` is passed two times.
 }
 
 fn deserialize_http_response(data: &[u8]) -> anyhow::Result<actix_web::HttpResponse<Vec<u8>>> {
