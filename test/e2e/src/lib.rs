@@ -201,8 +201,8 @@ mod tests {
                 miss_count += 1;
             }
         }
-        assert_eq!(miss_count, 1);
-        assert_eq!(hit_count, 2);
+        assert_eq!(miss_count, 1, "miss count");
+        assert_eq!(hit_count, 2, "hit count");
 
         drop(dfx);
         drop(mytest);
