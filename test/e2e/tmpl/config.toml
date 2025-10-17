@@ -20,7 +20,7 @@ key_file = "localhost.decrypted.key"
 [callback]
 ic_local = true
 ic_url = "http://127.0.0.1:8007" # "http://localhost:8007"
-canister = "aaaaa-aa" # will be overwitten
+canister = "aaaaa-aa" # will be overwritten
 func = "checkRequest"
 
 [cache]
