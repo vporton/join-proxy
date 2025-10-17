@@ -6,7 +6,7 @@ export function Home() {
     const userPrincipal = useMemo(() => identity?.getPrincipal(), [identity]);
     return (
         <>
-            {/* TODO: copy principal button */}
+            {/* TODO: "copy principal" button */}
             {isLoginSuccess && <>
                 <p>Your user principal is <code>{userPrincipal?.toText()}</code>.</p>
                 <p>To set or read your canister settings, create a canister with a function <code>isJoinProxyUser</code>{" "}
