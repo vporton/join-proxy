@@ -221,11 +221,13 @@ async fn proxy(
                 ))
                 .get_result::<(i32, i32, bool, bool/*, i32, i32, i32*/)>(&mut *state.conn.lock().await)
                 .map_err(|_| anyhow!(format!("no serve config with uid {serve_config_uid}")))?;
-            let a_user_principal = users.filter(self::schema::users::dsl::id.eq(a_user_id))
+            let a_user_principal: Principal = users.filter(self::schema::users::dsl::id.eq(a_user_id))
                 .select(user_principal)
                 .get_result::<Vec<u8>>(&mut *state.conn.lock().await)
-                .map_err(|_| anyhow!(format!("no user with id {a_user_id}")))?;
-            if a_user_principal != caller_principal.as_slice() {
+                .map_err(|_| anyhow!(format!("no user with id {a_user_id}")))?
+                .try_into()
+                .map_err(|_| anyhow!(format!("wrong principal format")))?;
+            if a_user_principal != caller_principal {
                 return Err(anyhow!("access denied").into());
             }
 
