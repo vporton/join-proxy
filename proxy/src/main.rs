@@ -210,7 +210,7 @@ async fn proxy(
                 // a_total_timeout,
             ) = server_setups
                 .filter(guid.eq(serve_config_uid))
-                .select(    (
+                .select((
                     self::schema::server_setups::dsl::id,
                     user_id,
                     show_hit_miss,
