@@ -21,3 +21,5 @@ TODO:
 - Test that access to keys stored in the DB is secure.
 
 - Use `r2d2`.
+
+- Reduce use of `anyhow`/`bail`.
