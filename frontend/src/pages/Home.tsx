@@ -15,6 +15,7 @@ export function Home() {
                 <p>Be warned that if you return an incorrect <code>true</code> value from <code>isJoinProxyUser</code>,{" "}
                 your settings (such as secret keys in added HTTP headers) will be both settable and readable by the user{" "}
                 having <code>true</code> value.</p>
+                <p>FIXME: Check whether this is secure for looking into others' secrets.</p>
             </>}
         </>
     );
