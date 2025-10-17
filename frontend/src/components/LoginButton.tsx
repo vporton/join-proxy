@@ -1,4 +1,5 @@
 import { useInternetIdentity } from "ic-use-internet-identity";
+import { Button } from "react-bootstrap";
 
 export function LoginButton() {
   const { isLoggingIn, login, clear: clearIdentity, identity, status } = useInternetIdentity();
@@ -21,8 +22,8 @@ export function LoginButton() {
   };
 
   return (
-    <button onClick={handleClick} disabled={isLoggingIn}>
+    <Button onClick={handleClick} disabled={isLoggingIn}>
       {text()}
-    </button>
+    </Button>
   );
 }

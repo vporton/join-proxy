@@ -1,0 +1,7 @@
+#main {
+    margin-top: 10px;
+}
+
+.nav-link.active {
+    background: lightgray;
+}

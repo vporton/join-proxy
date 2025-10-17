@@ -10,9 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "bootstrap": "^5.3.8",
     "dotenv": "^17.2.3",
     "ic-use-internet-identity": "^0.6.2",
     "react": "^19.1.1",
+    "react-bootstrap": "^2.10.10",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.9.4",
     "vite-plugin-environment": "^1.1.3"
