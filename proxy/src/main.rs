@@ -197,7 +197,8 @@ async fn proxy(
         use self::schema::add_request_headers::dsl::*;
         use self::schema::remove_request_headers::dsl::*;
         let (actix_response, reqwest_response) = if let Some((serve_config_uid, caller_principal)) = serve_config_uid_s {
-            let serve_config_uid = serve_config_uid.to_str()?;
+            let serve_config_uid_raw = serve_config_uid.to_str()?;
+            let serve_config_uid = hex::decode(serve_config_uid_raw).map_err(|_| anyhow!("broken hex ID"))?;
             // TODO: Should JOIN two following SQL requests into one?
             let (
                 a_server_setup_id,
@@ -219,8 +220,8 @@ async fn proxy(
                     // read_timeout,
                     // total_timeout,
                 ))
-                .get_result::<(i32, i32, bool, bool/*, i32, i32, i32*/)>(&mut *state.conn.lock().await)
-                .map_err(|_| anyhow!(format!("no serve config with uid {serve_config_uid}")))?;
+                .get_result::<(i64, i32, bool, bool/*, i32, i32, i32*/)>(&mut *state.conn.lock().await)
+                .map_err(|_| anyhow!(format!("no serve config with uid {serve_config_uid_raw}")))?;
             let a_user_principal: Principal = users.filter(self::schema::users::dsl::id.eq(a_user_id))
                 .select(user_principal)
                 .get_result::<Vec<u8>>(&mut *state.conn.lock().await)

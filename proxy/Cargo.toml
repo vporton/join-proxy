@@ -27,7 +27,8 @@ toml = "0.9.8"
 rustls = "0.23.32"
 rustls-pemfile = "2.2.0"
 env_logger = "0.11.8"
-diesel = { version = "2.3.2", features = ["postgres", "chrono", "uuid", "r2d2", "32-column-tables"] }
+diesel = { version = "2.3.2", features = ["postgres", "postgres_backend", "chrono", "uuid", "r2d2", "32-column-tables"] }
 reqwest = { version = "0.12.24", features = ["http2", "default-tls", "charset", "cookies", "gzip", "brotli", "zstd", "deflate", "json", "multipart", "stream", "system-proxy"] }
+hex = "0.4.3"
 # lock_api = "0.4.12"
 # future-parking_lot = "0.3.3"

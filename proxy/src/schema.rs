@@ -3,7 +3,7 @@
 diesel::table! {
     add_request_headers (id) {
         id -> Int4,
-        server_setup_id -> Int4,
+        server_setup_id -> Int8,
         header_name -> Text,
         header_value -> Text,
     }
@@ -12,7 +12,7 @@ diesel::table! {
 diesel::table! {
     add_response_headers (id) {
         id -> Int4,
-        server_setup_id -> Int4,
+        server_setup_id -> Int8,
         header_name -> Text,
         header_value -> Text,
     }
@@ -21,7 +21,7 @@ diesel::table! {
 diesel::table! {
     remove_request_headers (id) {
         id -> Int4,
-        server_setup_id -> Int4,
+        server_setup_id -> Int8,
         header_name -> Text,
     }
 }
@@ -29,7 +29,7 @@ diesel::table! {
 diesel::table! {
     remove_response_headers (id) {
         id -> Int4,
-        server_setup_id -> Int4,
+        server_setup_id -> Int8,
         header_name -> Text,
     }
 }
@@ -44,8 +44,8 @@ diesel::table! {
 
 diesel::table! {
     server_setups (id) {
-        id -> Int4,
-        guid -> Text,
+        id -> Int8,
+        guid -> Bytea,
         user_id -> Int4,
         show_hit_miss -> Bool,
         add_forwarded_from_header -> Bool,
