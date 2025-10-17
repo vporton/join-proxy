@@ -44,7 +44,8 @@ pub struct Serve {
 
 #[derive(Clone, Deserialize, Debug)]
 pub struct Config {
-    pub serve: Serve,
+    pub bind_proxy: Serve,
+    pub bind_api: Serve,
     pub our_secret: Option<String>, // simple Bearer authentication
     pub require_x_principal: bool,
     pub cache: CacheConfig,

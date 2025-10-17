@@ -3,9 +3,16 @@
 
 require_x_principal = true
 
-[serve]
+[bind_proxy]
 host = "local.vporton.name"
 port = 8443
+https = true
+cert_file = "localhost.crt"
+key_file = "localhost.decrypted.key"
+
+[bind_api]
+host = "local.vporton.name"
+port = 8080
 https = true
 cert_file = "localhost.crt"
 key_file = "localhost.decrypted.key"

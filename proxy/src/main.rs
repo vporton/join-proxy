@@ -405,10 +405,10 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let server_url = config.serve.host.clone() + ":" + config.serve.port.to_string().as_str();
+    let proxy_server_url = config.bind_proxy.host.clone() + ":" + config.bind_proxy.port.to_string().as_str();
+    let api_server_url = config.bind_api.host.clone() + ":" + config.bind_api.port.to_string().as_str();
 
     ring::default_provider().install_default().unwrap();
-
 
     let cache =
         Arc::new(Mutex::new(Box::<BinaryCache>::from(Box::new(BinaryMemCache::new(config.cache.cache_timeout)))));
@@ -428,11 +428,15 @@ async fn main() -> anyhow::Result<()> {
             None
         }
     };
+    let agent2 = agent.clone();
 
-    let (cert_file, key_file) = (config.serve.cert_file.clone(), config.serve.key_file.clone());
     let database_url = std::env::var("DATABASE_URL").context("DATABASE_URL must be set")?;
-    let is_https = config.serve.https;
-    let server = HttpServer::new(move || {
+    let database_url2 = database_url.clone();
+    let is_https = config.bind_proxy.https; // FIXME: for API?
+
+    let config2 = config.clone(); // TODO: hack
+    let (cert_file, key_file) = (config.bind_proxy.cert_file.clone(), config.bind_proxy.key_file.clone());
+    let proxyServer = HttpServer::new(move || {
         let mut builder = ClientBuilder::new();
         if let Some(t) = config.upstream_timeouts.connect_timeout {
             builder = builder.connect_timeout(t);
@@ -450,23 +454,60 @@ async fn main() -> anyhow::Result<()> {
         };
         App::new().service(
             web::scope("")
-            .app_data(Data::new(config.clone()))
+            .app_data(Data::new(config.clone())) // TODO: Can remove clone?
             .app_data(Data::new(state))
             .app_data(Data::new(cache.clone()))
                 .route("/{_:.*}", web::route().to(proxy))
         )
     });
-    info!("Starting Proxy at {} (https={})", server_url, is_https);
+    info!("Starting Proxy at {} (https={})", proxy_server_url, is_https);
+    // if is_https {
+    //     if let (Some(cert_file), Some(key_file)) = (cert_file, key_file) {
+    //         let cert_file = &mut BufReader::new(File::open(cert_file).context("Can't read HTTPS cert.")?);
+    //         let key_file = &mut BufReader::new(File::open(key_file).context("Can't read HTTPS key.")?);
+    //         let cert_chain = certs(cert_file).collect::<Result<Vec<_>, _>>()
+    //             .context("Can't parse HTTPS certs chain.")?;
+    //         let key = pkcs8_private_keys(key_file)
+    //             .next().transpose()?.ok_or(anyhow!("No private key in the file."))?;
+    //         proxyServer.bind_rustls_0_23(
+    //             proxy_server_url,
+    //             ServerConfig::builder().with_no_client_auth()
+    //                 .with_single_cert(cert_chain, rustls::pki_types::PrivateKeyDer::Pkcs8(key))?
+    //         )
+    //     } else {
+    //         bail!("No SSL certificate or key in config");
+    //     }
+    // } else {
+    //     proxyServer.bind(proxy_server_url)
+    // }?
+    //     .run()
+    //     .await.map_err(|e| e.into())
+    let (cert_file, key_file) = (config2.bind_api.cert_file.clone(), config2.bind_api.key_file.clone());
+    let apiServer = HttpServer::new(move || {
+        let mut builder = ClientBuilder::new();
+        let state = State {
+            client: builder.build().unwrap(), // TODO: unused
+            agent: agent2.clone(), // TODO: Can remove clone?
+            conn: tokio::sync::Mutex::new(PgConnection::establish(&database_url2).expect("DB connection")),
+        };
+        App::new().service(
+            web::scope("/api")
+            .app_data(Data::new(config2.clone())) // TODO: Can remove clone?
+            .app_data(Data::new(state))
+                .route("/{_:.*}", web::route().to(proxy)) // FIXME
+        )
+    });
     if is_https {
         if let (Some(cert_file), Some(key_file)) = (cert_file, key_file) {
+            // TODO: Don't load/parse files second time.
             let cert_file = &mut BufReader::new(File::open(cert_file).context("Can't read HTTPS cert.")?);
             let key_file = &mut BufReader::new(File::open(key_file).context("Can't read HTTPS key.")?);
             let cert_chain = certs(cert_file).collect::<Result<Vec<_>, _>>()
                 .context("Can't parse HTTPS certs chain.")?;
             let key = pkcs8_private_keys(key_file)
                 .next().transpose()?.ok_or(anyhow!("No private key in the file."))?;
-            server.bind_rustls_0_23(
-                server_url,
+            apiServer.bind_rustls_0_23(
+                api_server_url,
                 ServerConfig::builder().with_no_client_auth()
                     .with_single_cert(cert_chain, rustls::pki_types::PrivateKeyDer::Pkcs8(key))?
             )
@@ -474,8 +515,9 @@ async fn main() -> anyhow::Result<()> {
             bail!("No SSL certificate or key in config");
         }
     } else {
-        server.bind(server_url)
+        apiServer.bind(api_server_url)
     }?
         .run()
         .await.map_err(|e| e.into())
+    // tokio::try_join!(proxy, api).map_err(|e| e.into())
 }
