@@ -10,8 +10,8 @@ export function Home() {
             {isLoginSuccess && <>
                 <p>Your user principal is <code>{userPrincipal?.toText()}</code>.</p>
                 <p>To set your canister settings, create a canister with a function <code>isJoinProxyUser</code>{" "}
-                (with a `principal` as its sole argument) that returns <code>True</code> for your user principal{" "}
-                (and <code>False</code> for third-party users).</p>
+                (with a <code>principal</code> as its sole argument) that returns <code>true</code> for your user principal{" "}
+                (and <code>false</code> or trap for third-party users).</p>
             </>}
         </>
     );
