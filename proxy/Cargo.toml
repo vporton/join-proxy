@@ -20,7 +20,7 @@ sha2 = "0.10.9"
 thiserror = "2.0.17"
 ic-agent = "0.44.2"
 base64 = "0.22.1"
-tokio = "1.48.0"
+tokio = { version = "1.48.0", features = ["macros"] }
 async-trait = "0.1.89"
 candid = { version = "0.10.20", features = ["value"] }
 toml = "0.9.8"

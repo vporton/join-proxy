@@ -436,7 +436,7 @@ async fn main() -> anyhow::Result<()> {
 
     let config2 = config.clone(); // TODO: hack
     let (cert_file, key_file) = (config.bind_proxy.cert_file.clone(), config.bind_proxy.key_file.clone());
-    let proxyServer = HttpServer::new(move || {
+    let proxy_server = HttpServer::new(move || {
         let mut builder = ClientBuilder::new();
         if let Some(t) = config.upstream_timeouts.connect_timeout {
             builder = builder.connect_timeout(t);
@@ -461,30 +461,29 @@ async fn main() -> anyhow::Result<()> {
         )
     });
     info!("Starting Proxy at {} (https={})", proxy_server_url, is_https);
-    // if is_https {
-    //     if let (Some(cert_file), Some(key_file)) = (cert_file, key_file) {
-    //         let cert_file = &mut BufReader::new(File::open(cert_file).context("Can't read HTTPS cert.")?);
-    //         let key_file = &mut BufReader::new(File::open(key_file).context("Can't read HTTPS key.")?);
-    //         let cert_chain = certs(cert_file).collect::<Result<Vec<_>, _>>()
-    //             .context("Can't parse HTTPS certs chain.")?;
-    //         let key = pkcs8_private_keys(key_file)
-    //             .next().transpose()?.ok_or(anyhow!("No private key in the file."))?;
-    //         proxyServer.bind_rustls_0_23(
-    //             proxy_server_url,
-    //             ServerConfig::builder().with_no_client_auth()
-    //                 .with_single_cert(cert_chain, rustls::pki_types::PrivateKeyDer::Pkcs8(key))?
-    //         )
-    //     } else {
-    //         bail!("No SSL certificate or key in config");
-    //     }
-    // } else {
-    //     proxyServer.bind(proxy_server_url)
-    // }?
-    //     .run()
-    //     .await.map_err(|e| e.into())
+    let proxy = if is_https {
+        if let (Some(cert_file), Some(key_file)) = (cert_file, key_file) {
+            let cert_file = &mut BufReader::new(File::open(cert_file).context("Can't read HTTPS cert.")?);
+            let key_file = &mut BufReader::new(File::open(key_file).context("Can't read HTTPS key.")?);
+            let cert_chain = certs(cert_file).collect::<Result<Vec<_>, _>>()
+                .context("Can't parse HTTPS certs chain.")?;
+            let key = pkcs8_private_keys(key_file)
+                .next().transpose()?.ok_or(anyhow!("No private key in the file."))?;
+            proxy_server.bind_rustls_0_23(
+                proxy_server_url,
+                ServerConfig::builder().with_no_client_auth()
+                    .with_single_cert(cert_chain, rustls::pki_types::PrivateKeyDer::Pkcs8(key))?
+            )
+        } else {
+            bail!("No SSL certificate or key in config");
+        }
+    } else {
+        proxy_server.bind(proxy_server_url)
+    }?
+        .run();
     let (cert_file, key_file) = (config2.bind_api.cert_file.clone(), config2.bind_api.key_file.clone());
-    let apiServer = HttpServer::new(move || {
-        let mut builder = ClientBuilder::new();
+    let api_server = HttpServer::new(move || {
+        let builder = ClientBuilder::new();
         let state = State {
             client: builder.build().unwrap(), // TODO: unused
             agent: agent2.clone(), // TODO: Can remove clone?
@@ -494,10 +493,10 @@ async fn main() -> anyhow::Result<()> {
             web::scope("/api")
             .app_data(Data::new(config2.clone())) // TODO: Can remove clone?
             .app_data(Data::new(state))
-                .route("/{_:.*}", web::route().to(proxy)) // FIXME
+                // .route("/{_:.*}", web::route().to(proxy)) // FIXME
         )
     });
-    if is_https {
+    let api = if is_https {
         if let (Some(cert_file), Some(key_file)) = (cert_file, key_file) {
             // TODO: Don't load/parse files second time.
             let cert_file = &mut BufReader::new(File::open(cert_file).context("Can't read HTTPS cert.")?);
@@ -506,7 +505,7 @@ async fn main() -> anyhow::Result<()> {
                 .context("Can't parse HTTPS certs chain.")?;
             let key = pkcs8_private_keys(key_file)
                 .next().transpose()?.ok_or(anyhow!("No private key in the file."))?;
-            apiServer.bind_rustls_0_23(
+            api_server.bind_rustls_0_23(
                 api_server_url,
                 ServerConfig::builder().with_no_client_auth()
                     .with_single_cert(cert_chain, rustls::pki_types::PrivateKeyDer::Pkcs8(key))?
@@ -515,9 +514,9 @@ async fn main() -> anyhow::Result<()> {
             bail!("No SSL certificate or key in config");
         }
     } else {
-        apiServer.bind(api_server_url)
+        api_server.bind(api_server_url)
     }?
-        .run()
-        .await.map_err(|e| e.into())
-    // tokio::try_join!(proxy, api).map_err(|e| e.into())
+        .run();
+    tokio::try_join!(proxy, api).map_err(|e| MyError::from(e))?;
+    Ok(())
 }
