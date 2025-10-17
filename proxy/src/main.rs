@@ -117,7 +117,7 @@ async fn proxy(
 {
     let path = req.uri().path_and_query().ok_or(anyhow!("can't get path and query"))?.as_str();
     info!("Joining proxy received a request to {}", path);
-    // First level of defence: X-JoinProxy-Key can be stolen by an IC replica owner:
+    // First level of defense: X-JoinProxy-Key can be stolen by an IC replica owner:
     if let Some(our_secret) = &config.our_secret {
         let passed_key = req.headers()
             .get("x-joinproxy-key")
