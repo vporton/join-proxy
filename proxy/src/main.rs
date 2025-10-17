@@ -153,7 +153,7 @@ async fn proxy(
     } else {
         info!("Cache miss.");
 
-        // Second level of defence: Ask back the calling canister.
+        // Second level of defense: Ask back the calling canister.
         // Do it only once per outcall (our response content isn't secure anyway).
         if let (Some(agent), Some(callback)) = (&state.agent, &config.callback) {
             info!("Callback...");
