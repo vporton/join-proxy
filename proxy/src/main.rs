@@ -42,7 +42,7 @@ struct State {
 fn serialize_http_request(request: &actix_web::HttpRequest, url: &str, bytes: &actix_web::web::Bytes) -> anyhow::Result<Vec<u8>> {
     // Actix convert headers to lowercase.
     let mut headers = BTreeMap::new();
-    for (k, v) in request.headers().into_iter() { // lexigraphical order
+    for (k, v) in request.headers().into_iter() { // lexicographical order
         let entry = headers.entry(k.as_str());
         let v_str = v.to_str()?;
         match entry {
