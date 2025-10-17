@@ -23,5 +23,3 @@ TODO:
 - Use `r2d2`.
 
 - Reduce use of `anyhow`/`bail`.
-
-- Make our AI to summarize each time when it asserts worth and save work and/or go further building on it the next time.
