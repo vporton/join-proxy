@@ -16,7 +16,7 @@ TODO:
 
 - Test: `add_per_host`, `remove_per_host`.
 
-- Add `x-nonce`.
+- Add `x-nonce`?
 
 - Test that access to keys stored in the DB is secure.
 
