@@ -1,7 +1,6 @@
 use actix_web::{http::{header::ContentType, StatusCode}, HttpResponse, ResponseError};
 use http_for_actix::status::InvalidStatusCode;
 use ic_agent::AgentError;
-use oxide_auth::endpoint::OAuthError;
 use thiserror::Error;
 use std::fmt::{Debug, Display, Formatter};
 use derive_more::From;

@@ -1,20 +1,12 @@
 use actix::{Actor, Addr, Context, Handler};
-use actix_web::{
-    middleware::{Logger, NormalizePath, TrailingSlash},
-    web::{self, Data},
-    App, HttpRequest, HttpServer, rt,
-};
+use actix_web::{web, HttpRequest};
 use oxide_auth::{
-    endpoint::{Endpoint, OwnerConsent, OwnerSolicitor, Solicitation, QueryParameter},
-    frontends::simple::endpoint::{ErrorInto, FnSolicitor, Generic, Vacant},
-    primitives::prelude::{AuthMap, Client, ClientMap, RandomGenerator, Scope, TokenMap},
+    /*code_grant::client_credentials::ClientCredentials,*/ endpoint::{Endpoint, OwnerConsent, OwnerSolicitor, QueryParameter, Solicitation}, frontends::simple::endpoint::{ErrorInto, FnSolicitor, Generic, Vacant}, primitives::prelude::{AuthMap, Client, ClientMap, RandomGenerator, Scope, TokenMap}
 };
 use oxide_auth_actix::{
-    Authorize, OAuthMessage, OAuthOperation, OAuthRequest, OAuthResource, OAuthResponse, Refresh,
-    Resource, Token, WebError, ClientCredentials,
+    Authorize, OAuthMessage, OAuthOperation, OAuthRequest, OAuthResponse, Refresh, Token, WebError
 };
-
-use crate::errors::MyError;
+use oxide_auth_actix::ClientCredentials;
 
 // Follows https://github.com/197g/oxide-auth/blob/master/oxide-auth-actix/examples/actix-example/src/main.rs
 
@@ -37,51 +29,36 @@ enum Extras {
     Nothing,
 }
 
-// FIXME
 /// Handles OAuth2 /authorize requests
 pub async fn authorize(
     (r, req, state): (HttpRequest, OAuthRequest, web::Data<Addr<State>>),
 ) -> Result<OAuthResponse, WebError> {
-    // Some authentication should be performed here in production cases
+    // FIXME: Some authentication should be performed here in production cases
     state
         .send(Authorize(req).wrap(Extras::AuthPost(r.query_string().to_owned())))
         .await?
 }
 
-// /// Handles OAuth2 /token exchange
-// pub async fn token(
-//     req: actix_web::HttpRequest,
-// ) -> Result<impl Responder, MyError> {
-//     let mut oauth_req = OAuthRequest::from_actix(&req);
-//     let mut response = OAuthResponse::new(HttpResponse::Ok());
+pub async fn token((req, state): (OAuthRequest, web::Data<Addr<State>>)) -> Result<OAuthResponse, WebError> {
+    let grant_type = req.body().and_then(|body| body.unique_value("grant_type"));
+    // Different grant types determine which flow to perform.
+    match grant_type.as_deref() {
+        Some("client_credentials") => {
+            state
+                .send(ClientCredentials(req).wrap(Extras::ClientCredentials))
+                .await?
+        }
+        // Each flow will validate the grant_type again, so we can let one case handle
+        // any incorrect or unsupported options.
+        _ => state.send(Token(req).wrap(Extras::Nothing)).await?,
+    }
+}
 
-//     AccessToken(oauth_req)
-//         .execute(&mut oauth_req, &mut response)
-//         .map_err(|e| MyError::from(OAuthError::from(e)))?;
-
-//     Ok(response.into_actix_response())
-// }
-
-// async fn token((req, state): (OAuthRequest, web::Data<Addr<State>>)) -> Result<OAuthResponse, WebError> {
-//     let grant_type = req.body().and_then(|body| body.unique_value("grant_type"));
-//     // Different grant types determine which flow to perform.
-//     match grant_type.as_deref() {
-//         Some("client_credentials") => {
-//             state
-//                 .send(ClientCredentials(req).wrap(Extras::ClientCredentials))
-//                 .await?
-//         }
-//         // Each flow will validate the grant_type again, so we can let one case handle
-//         // any incorrect or unsupported options.
-//         _ => state.send(Token(req).wrap(Extras::Nothing)).await?,
-//     }
-// }
-
-// async fn refresh(
-//     (req, state): (OAuthRequest, web::Data<Addr<State>>),
-// ) -> Result<OAuthResponse, WebError> {
-//     state.send(Refresh(req)/*.wrap(Extras::Nothing)*/).await?
-// }
+pub async fn refresh(
+    (req, state): (OAuthRequest, web::Data<Addr<State>>),
+) -> Result<OAuthResponse, WebError> {
+    state.send(Refresh(req).wrap(Extras::Nothing)).await?
+}
 
 impl State {
     pub fn preconfigured() -> Self {
