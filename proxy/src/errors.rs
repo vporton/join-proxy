@@ -1,6 +1,7 @@
 use actix_web::{http::{header::ContentType, StatusCode}, HttpResponse, ResponseError};
 use http_for_actix::status::InvalidStatusCode;
 use ic_agent::AgentError;
+use oxide_auth::endpoint::OAuthError;
 use thiserror::Error;
 use std::fmt::{Debug, Display, Formatter};
 use derive_more::From;
@@ -38,6 +39,10 @@ pub enum MyError {
     Agent(AgentError),
     #[error("Invalid URI: {0}")]
     InvalidUri(http::uri::InvalidUri),
+    // #[error("Auth error: {0}")]
+    // Auth(oxide_auth::frontends::simple::endpoint::Error<Request>),
+    #[error("Auth Web error: {0}")]
+    Web(oxide_auth_actix::WebError),
 }
 
 #[derive(Debug, Default, Error)]

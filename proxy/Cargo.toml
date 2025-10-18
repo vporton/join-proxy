@@ -30,5 +30,9 @@ env_logger = "0.11.8"
 diesel = { version = "2.3.2", features = ["postgres", "postgres_backend", "chrono", "uuid", "r2d2", "32-column-tables"] }
 reqwest = { version = "0.12.24", features = ["http2", "default-tls", "charset", "cookies", "gzip", "brotli", "zstd", "deflate", "json", "multipart", "stream", "system-proxy"] }
 hex = "0.4.3"
+oxide-auth-actix = "0.3.0"
+oxide-auth = "0.6.1"
+url = "2.5.7"
+serde_urlencoded = "0.7.1"
 # lock_api = "0.4.12"
 # future-parking_lot = "0.3.3"

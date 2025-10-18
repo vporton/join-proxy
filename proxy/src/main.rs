@@ -1,4 +1,5 @@
 mod api;
+mod auth;
 mod errors;
 mod cache;
 mod config;
@@ -6,8 +7,10 @@ mod schema;
 mod models;
 
 use std::{collections::{btree_map::Entry, BTreeMap}, fs::{read_to_string, File}, io::BufReader, str::{from_utf8, FromStr}, sync::Arc};
+use actix::Actor;
 use diesel::{Connection, ExpressionMethods, PgConnection, QueryDsl, RunQueryDsl};
 use log::info;
+use oxide_auth::primitives::{issuer::TokenMap, prelude::{AuthMap, ClientMap, RandomGenerator}, registrar::RegisteredUrl};
 use rustls::{crypto::ring, ServerConfig};
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use actix_web::{http::StatusCode, web::{self, Data}, App, HttpResponse, HttpServer};
@@ -22,7 +25,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use anyhow::bail;
 
-use crate::{config::Config, errors::MyError};
+use crate::{auth::authorize, config::Config, errors::MyError};
 
 #[derive(clap::Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -406,7 +409,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let proxy_server_url = config.bind_proxy.host.clone() + ":" + config.bind_proxy.port.to_string().as_str();
-    let api_server_url = config.bind_api.host.clone() + ":" + config.bind_api.port.to_string().as_str();
+    let api_server_url = config.bind_api.host.clone() + ":" + config.bind_api.port.to_string().as_str(); // TODO: duplicate code
 
     ring::default_provider().install_default().unwrap();
 
@@ -433,6 +436,29 @@ async fn main() -> anyhow::Result<()> {
     let database_url = std::env::var("DATABASE_URL").context("DATABASE_URL must be set")?;
     let database_url2 = database_url.clone();
     let is_https = config.bind_proxy.https; // FIXME: for API?
+
+    // TODO: Rename to `ouath_client`.
+    // let client = oxide_auth::primitives::registrar::Client::public(
+    //     "JoinProxyApi".into(),
+    //     // redirect URL
+    //     RegisteredUrl::Semantic(format!("{}/redirect", api_server_url).parse().unwrap()), // TODO: no such URL
+    //     // allowed scopes
+    //     "default".parse().unwrap(),
+    // );
+    // let registrar = ClientMap::new();
+    // registrar.register_client(client);
+    // let random_token_generator = Arc::new(RandomGenerator::new(32));
+    // let authorizer = AuthMap::new(random_token_generator);
+    // let issuer = TokenMap::new(random_token_generator);
+    // let endpoint = Arc::new(Mutex::new(
+    //     oxide_auth::endpoint::Generic {
+    //         registrar,
+    //         authorizer,
+    //         issuer,
+    //         scopes: oxide_auth::primitives::scope::ScopeMap::new(),
+    //     },
+    // ));
+    let state = auth::State::preconfigured().start();
 
     let config2 = config.clone(); // TODO: hack
     let (cert_file, key_file) = (config.bind_proxy.cert_file.clone(), config.bind_proxy.key_file.clone());
@@ -489,12 +515,19 @@ async fn main() -> anyhow::Result<()> {
             agent: agent2.clone(), // TODO: Can remove clone?
             conn: tokio::sync::Mutex::new(PgConnection::establish(&database_url2).expect("DB connection")),
         };
-        App::new().service(
-            web::scope("/api")
-                .app_data(Data::new(config2.clone())) // TODO: Can remove clone?
-                .app_data(Data::new(state))
-                // .route("/{_:.*}", web::route().to(proxy)) // FIXME
-        )
+        App::new()
+            .app_data(Data::new(config2.clone())) // TODO: Can remove clone?
+            .app_data(Data::new(state))
+            .service(
+                web::scope("/api")
+                    .route("/authorize", web::route().to(authorize))
+            )
+            .service(
+                web::scope("/auth")
+                    .route("/authorize", web::route().to(authorize)) // FIXME
+                    // .route("/token", web::route().to(token))
+                    // .route("/protected", web::route().to(protected_resource)))
+                )
     });
     let api = if is_https {
         if let (Some(cert_file), Some(key_file)) = (cert_file, key_file) {
