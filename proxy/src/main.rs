@@ -491,8 +491,8 @@ async fn main() -> anyhow::Result<()> {
         };
         App::new().service(
             web::scope("/api")
-            .app_data(Data::new(config2.clone())) // TODO: Can remove clone?
-            .app_data(Data::new(state))
+                .app_data(Data::new(config2.clone())) // TODO: Can remove clone?
+                .app_data(Data::new(state))
                 // .route("/{_:.*}", web::route().to(proxy)) // FIXME
         )
     });
