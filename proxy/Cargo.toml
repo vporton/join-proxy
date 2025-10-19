@@ -34,5 +34,7 @@ oxide-auth-actix = "0.3.0"
 oxide-auth = "0.6.1"
 url = "2.5.7"
 serde_urlencoded = "0.7.1"
+merge = { git = "https://git.sr.ht/~porton/merge-rs", version = "0.2.0", branch = "feat/overwrite_by_some" }
+merge_derive = { git = "https://git.sr.ht/~porton/merge-rs", version = "0.2.0", branch = "feat/overwrite_by_some" }
 # lock_api = "0.4.12"
 # future-parking_lot = "0.3.3"

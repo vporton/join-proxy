@@ -1,4 +1,6 @@
+use clap::Parser;
 use ic_agent::export::Principal;
+use merge::{Merge, option::overwrite_by_some};
 use serde::Deserializer;
 use serde_derive::Deserialize;
 use serde::de::Error;
@@ -14,7 +16,7 @@ pub struct Callback {
     pub ic_url: Option<String>,
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Deserialize, Debug, Default)]
 pub struct UpstreamTimeouts {
     #[serde(default="default_upstream_connect_timeout", deserialize_with = "parse_duration_option")]
     pub connect_timeout: Option<Duration>,
@@ -24,13 +26,13 @@ pub struct UpstreamTimeouts {
     pub total_timeout: Option<Duration>,
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Deserialize, Debug, Default)]
 pub struct CacheConfig {
     #[serde(deserialize_with = "parse_duration")]
     pub cache_timeout: Duration,
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Deserialize, Debug, Default)]
 pub struct Serve {
     #[serde(default="default_host")]
     pub host: String,
@@ -42,14 +44,31 @@ pub struct Serve {
     pub key_file: Option<String>,
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Debug, Deserialize, Merge, Parser)]
+#[command(version, name = "join-proxy", about = "A deduplication proxy for ICP")]
 pub struct Config {
+    #[merge(skip)]
+    #[arg(short, long="config", default_value="config.toml")]
+    #[serde(default)]
+    pub config_file: String,
+    #[merge(skip)]
+    #[clap(skip)]
     pub bind_proxy: Serve,
+    #[merge(skip)]
+    #[clap(skip)]
     pub bind_api: Serve,
+    #[merge(strategy = overwrite_by_some)]
     pub our_secret: Option<String>, // simple Bearer authentication
-    pub require_x_principal: bool,
+    #[merge(strategy = overwrite_by_some)]
+    pub require_x_principal: Option<bool>,
+    #[merge(skip)]
+    #[clap(skip)]
     pub cache: CacheConfig,
+    #[merge(skip)]
+    #[clap(skip)]
     pub upstream_timeouts: UpstreamTimeouts,
+    #[merge(skip)]
+    #[clap(skip)]
     pub callback: Option<Callback>,
 }
 
