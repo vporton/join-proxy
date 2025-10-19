@@ -25,7 +25,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use anyhow::bail;
 
-use crate::{auth::{authorize, refresh, token}, config::Config, errors::MyError};
+use crate::{auth::{authorize, refresh, token}, config::{Args, Config}, errors::MyError};
 
 struct State {
     client: reqwest::Client,
@@ -171,7 +171,7 @@ async fn proxy(
 
         let caller_principal = req.headers().get_all("x-principal").next_back();
         // req.headers().remove("x-principal"); // TODO: Should remove only the last `X-Principal`. (Or is it removed by `next_back()`?)
-        if config.require_x_principal == Some(true) && caller_principal.is_none() { // FIXME: Is `Some(true)` correct?
+        if config.require_x_principal && caller_principal.is_none() { // FIXME: Is `Some(true)` correct?
             return Err(anyhow!("missing X-Principal header").into());
         }
         // TODO: The below line is a hack.
@@ -389,12 +389,11 @@ async fn proxy(
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
-    let cli = Config::parse();
+    let cli = Args::parse();
     let config_string = read_to_string(&cli.config_file)
         .map_err(|e| anyhow!("Cannot read config file {}: {}", cli.config_file, e))?;
     let mut config: Config = toml::from_str(&config_string)
         .map_err(|e| anyhow!("Cannot read config file {}: {}", cli.config_file, e))?;
-    config.merge(cli);
     if let Some(callback) = &mut config.callback {
         if callback.ic_url.is_none() && callback.ic_local {
             callback.ic_url = Some("http://localhost:8000".to_string())

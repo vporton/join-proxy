@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{clap_derive, command, Parser};
 use ic_agent::export::Principal;
 use merge::{Merge, option::overwrite_by_some};
 use serde::Deserializer;
@@ -44,30 +44,32 @@ pub struct Serve {
     pub key_file: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Merge, Parser)]
-#[command(version, name = "join-proxy", about = "A deduplication proxy for ICP")]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Config {
-    #[merge(skip)]
+    pub bind_proxy: Serve,
+    pub bind_api: Serve,
+    pub our_secret: Option<String>, // simple Bearer authentication
+    pub require_x_principal: bool,
+    pub cache: CacheConfig,
+    pub upstream_timeouts: UpstreamTimeouts,
+    pub callback: Option<Callback>,
+}
+
+#[derive(Parser)]
+#[command(version, name = "join-proxy", about = "A deduplication proxy for ICP")]
+pub struct Args {
     #[arg(short, long="config", default_value="config.toml")]
-    #[serde(default)]
     pub config_file: String,
-    #[merge(skip)]
     #[clap(skip)]
     pub bind_proxy: Serve,
-    #[merge(skip)]
     #[clap(skip)]
     pub bind_api: Serve,
-    #[merge(strategy = overwrite_by_some)]
     pub our_secret: Option<String>, // simple Bearer authentication
-    #[merge(strategy = overwrite_by_some)]
     pub require_x_principal: Option<bool>,
-    #[merge(skip)]
     #[clap(skip)]
     pub cache: CacheConfig,
-    #[merge(skip)]
     #[clap(skip)]
     pub upstream_timeouts: UpstreamTimeouts,
-    #[merge(skip)]
     #[clap(skip)]
     pub callback: Option<Callback>,
 }
