@@ -40,8 +40,6 @@ pub struct Serve {
     pub port: u16,
     #[serde(default="default_https")]
     pub https: bool,
-    pub cert_file: Option<String>,
-    pub key_file: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -53,6 +51,8 @@ pub struct Config {
     pub cache: CacheConfig,
     pub upstream_timeouts: UpstreamTimeouts,
     pub callback: Option<Callback>,
+    pub cert_file: Option<String>,
+    pub key_file: Option<String>,
 }
 
 #[derive(Parser)]
@@ -60,10 +60,18 @@ pub struct Config {
 pub struct Args {
     #[arg(short, long="config", default_value="config.toml")]
     pub config_file: String,
-    #[clap(skip)]
-    pub bind_proxy: Serve,
-    #[clap(skip)]
-    pub bind_api: Serve,
+    #[arg(long="proxy.host")]
+    pub bind_proxy_host: Option<String>,
+    #[arg(long="proxy.port")]
+    pub bind_proxy_port: Option<u16>,
+    #[arg(long="proxy.https")]
+    pub bind_proxy_https: Option<bool>,
+    #[arg(long="api.host")]
+    pub bind_api_host: Option<String>,
+    #[arg(long="api.port")]
+    pub bind_api_port: Option<u16>,
+    #[arg(long="api.https")]
+    pub bind_api_https: Option<bool>,
     pub our_secret: Option<String>, // simple Bearer authentication
     pub require_x_principal: Option<bool>,
     #[clap(skip)]
