@@ -80,14 +80,14 @@ impl State {
                 .into_iter()
                 .collect(),
                 // Authorization tokens are 16 byte random keys to a memory hash map.
-                authorizer: AuthMap::new(RandomGenerator::new(16)),
+                authorizer: AuthMap::new(RandomGenerator::new(32)),
                 // Bearer tokens are also random generated but 256-bit tokens, since they live longer
                 // and this example is somewhat paranoid.
                 //
                 // We could also use a `TokenSigner::ephemeral` here to create signed tokens which can
                 // be read and parsed by anyone, but not maliciously created. However, they can not be
                 // revoked and thus don't offer even longer lived refresh tokens.
-                issuer: TokenMap::new(RandomGenerator::new(16)),
+                issuer: TokenMap::new(RandomGenerator::new(32)),
 
                 solicitor: Vacant,
 
