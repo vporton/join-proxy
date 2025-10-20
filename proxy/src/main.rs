@@ -35,7 +35,7 @@ use std::{
 use tokio::sync::Mutex;
 
 use crate::{
-    auth::{authorize, refresh, token},
+    auth::{refresh, token},
     config::{Args, Config},
     errors::MyError,
 };
@@ -605,10 +605,10 @@ async fn main() -> anyhow::Result<()> {
             .app_data(Data::new(config2.clone())) // TODO: Can remove clone?
             .app_data(Data::new(state))
             .app_data(Data::new(oauth_state.clone()))
-            .service(web::scope("/api").route("/authorize", web::route().to(authorize)))
+            .service(web::scope("/api"))
             .service(
                 web::scope("/auth")
-                    .route("/authorize", web::route().to(authorize)) // FIXME
+                    // .route("/authorize", web::route().to(authorize))
                     .route("/token", web::route().to(token))
                     .route("/refresh", web::route().to(refresh)), // .route("/protected", web::route().to(protected_resource)))
             )

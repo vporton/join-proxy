@@ -1,24 +1,17 @@
 // mod support;
 
 use actix::{Actor, Addr, Context, Handler};
-use actix_web::{web, HttpRequest};
+use actix_web::web;
 use oxide_auth::{
     endpoint::{Endpoint, OwnerConsent, OwnerSolicitor, QueryParameter, Solicitation},
     frontends::simple::endpoint::{ErrorInto, FnSolicitor, Generic, Vacant},
-    primitives::prelude::{AuthMap, Client, ClientMap, RandomGenerator, Scope, TokenMap},
+    primitives::prelude::{AuthMap, ClientMap, RandomGenerator, Scope, TokenMap},
 };
 use oxide_auth_actix::{
-    Authorize, ClientCredentials, OAuthMessage, OAuthOperation, OAuthRequest, OAuthResponse, Refresh, Token, WebError
+    ClientCredentials, OAuthMessage, OAuthOperation, OAuthRequest, OAuthResponse, Refresh, Token, WebError
 };
 
 // Based on https://github.com/197g/oxide-auth/blob/master/oxide-auth-actix/examples/actix-example/src/main.rs
-
-static DENY_TEXT: &str = "<html>
-This page should be accessed via an oauth token from the client in the example. Click
-<a href=\"http://localhost:8020/authorize?response_type=code&client_id=LocalClient\">
-here</a> to begin the authorization process.
-</html>
-";
 
 pub struct State {
     endpoint: Generic<
@@ -32,20 +25,18 @@ pub struct State {
 }
 
 enum Extras {
-    AuthGet,
-    AuthPost(String),
     ClientCredentials,
     Nothing,
 }
 
-pub async fn authorize(
-    (r, req, state): (HttpRequest, OAuthRequest, web::Data<Addr<State>>),
-) -> Result<OAuthResponse, WebError> {
-    // Some authentication should be performed here in production cases
-    state
-        .send(Authorize(req).wrap(Extras::AuthPost(r.query_string().to_owned())))
-        .await?
-}
+// pub async fn authorize(
+//     (r, req, state): (HttpRequest, OAuthRequest, web::Data<Addr<State>>),
+// ) -> Result<OAuthResponse, WebError> {
+//     // Some authentication should be performed here in production cases
+//     state
+//         .send(Authorize(req).wrap(Extras::AuthPost(r.query_string().to_owned())))
+//         .await?
+// }
 
 // `curl http://localhost:8080/auth/token -H "Content-Type: application/x-www-form-urlencoded" -d 'grant_type=client_credentials' -u 'LocalClient:SecretSecret'`
 pub async fn token(
@@ -75,18 +66,18 @@ impl State {
     pub fn preconfigured() -> Self {
         State {
             endpoint: Generic {
-                // A registrar with one pre-registered client
-                registrar: vec![Client::confidential(
-                    "LocalClient",
-                    "http://localhost:8021/endpoint"
-                        .parse::<url::Url>()
-                        .unwrap()
-                        .into(),
-                    "default-scope".parse().unwrap(),
-                    "SecretSecret".as_bytes(),
-                )]
-                .into_iter()
-                .collect(),
+                registrar: Vec::new()
+                // registrar: vec![Client::confidential(
+                //     "LocalClient",
+                //     "http://localhost:8021/endpoint"
+                //         .parse::<url::Url>()
+                //         .unwrap()
+                //         .into(),
+                //     "default-scope".parse().unwrap(),
+                //     "SecretSecret".as_bytes(),
+                // )]
+                    .into_iter()
+                    .collect(),
                 // Authorization tokens are 16 byte random keys to a memory hash map.
                 authorizer: AuthMap::new(RandomGenerator::new(16)),
                 // Bearer tokens are also random generated but 256-bit tokens, since they live longer
@@ -100,7 +91,7 @@ impl State {
                 solicitor: Vacant,
 
                 // A single scope that will guard resources for this endpoint
-                scopes: vec!["default-scope".parse().unwrap()],
+                scopes: vec!["scope".parse().unwrap()],
 
                 response: OAuthResponse::ok,
             },
@@ -139,32 +130,6 @@ where
         let (op, ex) = msg.into_inner();
 
         match ex {
-            Extras::AuthGet => {
-                let solicitor =
-                    FnSolicitor(move |_: &mut OAuthRequest, pre_grant: Solicitation| {
-                        // This will display a page to the user asking for his permission to proceed. The submitted form
-                        // will then trigger the other authorization handler which actually completes the flow.
-                        OwnerConsent::InProgress(
-                            OAuthResponse::ok()
-                                .content_type("text/html")
-                                .unwrap()
-                                .body(&consent_page_html("/authorize".into(), pre_grant)),
-                        )
-                    });
-
-                op.run(self.with_solicitor(solicitor))
-            }
-            Extras::AuthPost(query_string) => {
-                let solicitor = FnSolicitor(move |_: &mut OAuthRequest, _: Solicitation| {
-                    if query_string.contains("allow") {
-                        OwnerConsent::Authorized("dummy user".to_owned())
-                    } else {
-                        OwnerConsent::Denied
-                    }
-                });
-
-                op.run(self.with_solicitor(solicitor))
-            }
             Extras::ClientCredentials => {
                 let solicitor =
                     FnSolicitor(move |_: &mut OAuthRequest, solicitation: Solicitation| {
@@ -183,37 +148,37 @@ where
     }
 }
 
-pub fn consent_page_html(route: &str, solicitation: Solicitation) -> String {
-    macro_rules! template {
-        () => {
-            "<html>'{0:}' (at {1:}) is requesting permission for '{2:}'
-<form method=\"post\">
-    <input type=\"submit\" value=\"Accept\" formaction=\"{4:}?{3:}&allow=true\">
-    <input type=\"submit\" value=\"Deny\" formaction=\"{4:}?{3:}&deny=true\">
-</form>
-</html>"
-        };
-    }
+// pub fn consent_page_html(route: &str, solicitation: Solicitation) -> String {
+//     macro_rules! template {
+//         () => {
+//             "<html>'{0:}' (at {1:}) is requesting permission for '{2:}'
+// <form method=\"post\">
+//     <input type=\"submit\" value=\"Accept\" formaction=\"{4:}?{3:}&allow=true\">
+//     <input type=\"submit\" value=\"Deny\" formaction=\"{4:}?{3:}&deny=true\">
+// </form>
+// </html>"
+//         };
+//     }
 
-    let grant = solicitation.pre_grant();
-    let state = solicitation.state();
+//     let grant = solicitation.pre_grant();
+//     let state = solicitation.state();
 
-    let mut extra = vec![
-        ("response_type", "code"),
-        ("client_id", grant.client_id.as_str()),
-        ("redirect_uri", grant.redirect_uri.as_str()),
-    ];
+//     let mut extra = vec![
+//         ("response_type", "code"),
+//         ("client_id", grant.client_id.as_str()),
+//         ("redirect_uri", grant.redirect_uri.as_str()),
+//     ];
 
-    if let Some(state) = state {
-        extra.push(("state", state));
-    }
+//     if let Some(state) = state {
+//         extra.push(("state", state));
+//     }
 
-    format!(
-        template!(),
-        grant.client_id,
-        grant.redirect_uri,
-        grant.scope,
-        serde_urlencoded::to_string(extra).unwrap(),
-        &route,
-    )
-}
+//     format!(
+//         template!(),
+//         grant.client_id,
+//         grant.redirect_uri,
+//         grant.scope,
+//         serde_urlencoded::to_string(extra).unwrap(),
+//         &route,
+//     )
+// }
