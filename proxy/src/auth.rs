@@ -445,7 +445,7 @@ fn verify_k256_key(
         .map_err(|_| IiAuthError::InvalidSignature)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum CurveKind {
     P256,
     Secp256k1,
@@ -460,9 +460,7 @@ fn normalize_sec1_bytes(bytes: &[u8], kind: CurveKind) -> Cow<'_, [u8]> {
         0x02 | 0x03 | 0x04 => Cow::Borrowed(bytes),
         _ if bytes.len() == 64 => convert_raw_xy(bytes),
         prefix if bytes.len() > 1 && (bytes.len() - 1) % 2 == 0 => {
-            rebuild_from_compact(bytes, prefix, kind, Endian::Big)
-                .or_else(|| rebuild_from_compact(bytes, prefix, kind, Endian::Little))
-                .unwrap_or_else(|| Cow::Borrowed(bytes))
+            build_from_vendor_encoding(bytes, prefix, kind)
         }
         _ => Cow::Borrowed(bytes),
     }
@@ -480,6 +478,66 @@ fn convert_raw_xy(bytes: &[u8]) -> Cow<'_, [u8]> {
 enum Endian {
     Big,
     Little,
+}
+
+fn expand_coord(coord: &[u8], endian: Endian) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    let len = coord.len().min(32);
+    match endian {
+        Endian::Big => {
+            out[32 - len..].copy_from_slice(&coord[coord.len() - len..]);
+        }
+        Endian::Little => {
+            for (i, byte) in coord.iter().take(len).enumerate() {
+                out[i] = *byte;
+            }
+            out[..].reverse();
+        }
+    }
+    out
+}
+
+fn build_from_vendor_encoding(bytes: &[u8], prefix: u8, kind: CurveKind) -> Cow<'_, [u8]> {
+    let result = reconstruct_truncated_encoding(bytes, prefix, kind)
+        .or_else(|| rebuild_from_compact(bytes, prefix, kind, Endian::Big))
+        .or_else(|| rebuild_from_compact(bytes, prefix, kind, Endian::Little));
+
+    result.unwrap_or_else(|| Cow::Borrowed(bytes))
+}
+
+fn reconstruct_truncated_encoding(
+    bytes: &[u8],
+    prefix: u8,
+    kind: CurveKind,
+) -> Option<Cow<'_, [u8]>> {
+    if prefix != 0x0a || kind != CurveKind::P256 || bytes.len() != 43 {
+        return None;
+    }
+
+    let x = &bytes[1..22];
+    let y = &bytes[22..];
+
+    let mut owned = Vec::with_capacity(65);
+    owned.push(0x04);
+
+    owned.extend_from_slice(&expand_truncated_coord(x));
+    owned.extend_from_slice(&expand_truncated_coord(y));
+
+    warn!(
+        "Reconstructed SEC1 point from truncated vendor encoding (prefix 0x{:02x}, x_len {}, y_len {})",
+        prefix,
+        x.len(),
+        y.len()
+    );
+
+    Some(Cow::Owned(owned))
+}
+
+fn expand_truncated_coord(coord: &[u8]) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    let len = coord.len().min(32);
+    out[32 - len..].copy_from_slice(&coord[coord.len() - len..]);
+    out
 }
 
 fn rebuild_from_compact(
@@ -516,23 +574,6 @@ fn rebuild_from_compact(
         prefix, coord_len, endian
     );
     Some(Cow::Owned(owned))
-}
-
-fn expand_coord(coord: &[u8], endian: Endian) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    let len = coord.len().min(32);
-    match endian {
-        Endian::Big => {
-            out[32 - len..].copy_from_slice(&coord[coord.len() - len..]);
-        }
-        Endian::Little => {
-            for (i, byte) in coord.iter().take(len).enumerate() {
-                out[i] = *byte;
-            }
-            out[..].reverse();
-        }
-    }
-    out
 }
 
 fn verify_internet_identity(
