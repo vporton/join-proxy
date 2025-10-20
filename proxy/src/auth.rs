@@ -14,15 +14,17 @@ use k256::{
     EncodedPoint as K256EncodedPoint, Secp256k1,
 };
 use log::{error, warn};
-use oxide_auth::primitives::grant::Grant;
+use oxide_auth::primitives::grant::{Extensions, Grant};
 use oxide_auth::{
-    endpoint::{Endpoint, OwnerConsent, OwnerSolicitor, QueryParameter, Solicitation},
+    endpoint::{Endpoint, OAuthError, OwnerConsent, OwnerSolicitor, QueryParameter, Solicitation},
     frontends::simple::endpoint::{ErrorInto, Generic, Vacant},
-    primitives::prelude::{AuthMap, Client, ClientMap, Issuer, RandomGenerator, Scope, TokenMap},
+    primitives::prelude::{
+        AuthMap, Client, ClientMap, ClientUrl, IssuedToken, Issuer, RandomGenerator, Registrar,
+        Scope, TokenMap,
+    },
 };
 use oxide_auth_actix::{
-    Authorize, ClientCredentials, OAuthMessage, OAuthOperation, OAuthRequest, OAuthResponse,
-    Refresh, Token, WebError,
+    Authorize, OAuthMessage, OAuthOperation, OAuthRequest, OAuthResponse, Refresh, Token, WebError,
 };
 use p256::{
     ecdsa::{Signature as P256Signature, VerifyingKey as P256VerifyingKey},
@@ -33,7 +35,7 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use sec1::EcParameters;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use sha2::{Digest as ShaDigest, Sha256};
 use std::{
     collections::HashMap,
@@ -44,10 +46,11 @@ use std::{
 use thiserror::Error;
 use tokio::sync::Mutex as AsyncPgMutex;
 
-use chrono::Utc;
+use chrono::{Duration as ChronoDuration, Utc};
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::result::Error as DieselError;
+use std::borrow::Cow;
 
 use crate::models::NewRefreshToken;
 use crate::schema::refresh_tokens::dsl as refresh_tokens_dsl;
@@ -70,7 +73,6 @@ pub struct State {
 
 enum Extras {
     Authorize,
-    ClientCredentials,
     Nothing,
 }
 
@@ -80,6 +82,14 @@ pub struct LookupRefreshGrant {
 
 impl Message for LookupRefreshGrant {
     type Result = Result<Option<Grant>, WebError>;
+}
+
+pub struct IssueClientCredentialsToken {
+    pub request: OAuthRequest,
+}
+
+impl Message for IssueClientCredentialsToken {
+    type Result = Result<(IssuedToken, Grant), WebError>;
 }
 
 const CHALLENGE_LEN: usize = 32;
@@ -400,6 +410,42 @@ fn owner_consent_from_error(err: IiAuthError) -> OwnerConsent<OAuthResponse> {
     }
 }
 
+fn ii_error_to_web(err: IiAuthError) -> WebError {
+    if err.is_client_error() {
+        WebError::Endpoint(OAuthError::BadRequest)
+    } else {
+        WebError::InternalError(Some(err.to_string()))
+    }
+}
+
+fn build_client_credentials_response(
+    issued: &IssuedToken,
+    scope: &Scope,
+) -> Result<OAuthResponse, WebError> {
+    let expires_in = issued
+        .until
+        .signed_duration_since(Utc::now())
+        .num_seconds()
+        .max(0);
+
+    let payload = json!({
+        "access_token": issued.token,
+        "token_type": "Bearer",
+        "expires_in": expires_in,
+        "refresh_token": issued.refresh,
+        "scope": scope.to_string(),
+    });
+
+    let body = serde_json::to_string(&payload)
+        .map_err(|err| WebError::InternalError(Some(err.to_string())))?;
+
+    let mut response = OAuthResponse::ok();
+    response = response
+        .content_type("application/json")
+        .map_err(WebError::from)?;
+    Ok(response.body(&body))
+}
+
 fn extract_refresh_token(response: &OAuthResponse) -> Option<String> {
     response.get_body().and_then(|body| {
         serde_json::from_str::<Value>(&body).ok().and_then(|value| {
@@ -480,64 +526,75 @@ pub async fn token(
     let grant_type = req
         .body()
         .and_then(|body| body.unique_value("grant_type").map(|v| v.into_owned()));
-    let old_refresh_token = req
-        .body()
-        .and_then(|body| body.unique_value("refresh_token").map(|v| v.into_owned()));
+    let grant_type_str = grant_type.as_deref();
 
-    let response_result = match grant_type.as_deref() {
-        Some("client_credentials") => state
-            .send(ClientCredentials(req).wrap(Extras::ClientCredentials))
-            .await
-            .map_err(|err| WebError::InternalError(Some(err.to_string())))?,
+    let old_refresh_token = if grant_type_str == Some("refresh_token") {
+        req.body()
+            .and_then(|body| body.unique_value("refresh_token").map(|v| v.into_owned()))
+    } else {
+        None
+    };
+
+    let mut new_refresh_for_storage: Option<(String, Grant)> = None;
+
+    let response = match grant_type_str {
+        Some("client_credentials") => {
+            let (issued, grant) = state
+                .send(IssueClientCredentialsToken { request: req })
+                .await
+                .map_err(|err| WebError::InternalError(Some(err.to_string())))??;
+
+            if let Some(refresh) = issued.refresh.clone() {
+                new_refresh_for_storage = Some((refresh.clone(), grant.clone()));
+            }
+
+            build_client_credentials_response(&issued, &grant.scope)?
+        }
         Some("refresh_token") => state
             .send(Refresh(req).wrap(Extras::Nothing))
             .await
-            .map_err(|err| WebError::InternalError(Some(err.to_string())))?,
-        // Each flow will validate the grant_type again, so we can let one case handle
-        // any incorrect or unsupported options.
+            .map_err(|err| WebError::InternalError(Some(err.to_string())))??,
         _ => state
             .send(Token(req).wrap(Extras::Nothing))
             .await
-            .map_err(|err| WebError::InternalError(Some(err.to_string())))?,
+            .map_err(|err| WebError::InternalError(Some(err.to_string())))??,
     };
 
-    let response = response_result?;
-
-    let new_refresh_token = extract_refresh_token(&response);
-
-    if grant_type.as_deref() == Some("refresh_token") {
-        if let (Some(old_token), Some(_)) = (old_refresh_token.as_ref(), new_refresh_token.as_ref())
-        {
+    if grant_type_str == Some("refresh_token") {
+        if let Some(old_token) = old_refresh_token.as_ref() {
             if let Err(err) = delete_refresh_token(db.get_ref(), old_token).await {
                 warn!("failed to delete old refresh token: {err}");
             }
-            // continue storing the new token below
         }
     }
 
-    if let Some(refresh_token_value) = new_refresh_token {
-        match state
-            .send(LookupRefreshGrant {
-                refresh_token: refresh_token_value.clone(),
-            })
-            .await
-        {
-            Ok(Ok(Some(grant))) => {
-                if let Err(err) =
-                    persist_refresh_token(db.get_ref(), &refresh_token_value, &grant).await
-                {
-                    error!("failed to store refresh token: {err}");
+    if new_refresh_for_storage.is_none() {
+        if let Some(refresh_token_value) = extract_refresh_token(&response) {
+            match state
+                .send(LookupRefreshGrant {
+                    refresh_token: refresh_token_value.clone(),
+                })
+                .await
+            {
+                Ok(Ok(Some(grant))) => {
+                    new_refresh_for_storage = Some((refresh_token_value.clone(), grant));
+                }
+                Ok(Ok(None)) => {
+                    warn!("refresh token grant not found in issuer state");
+                }
+                Ok(Err(err)) => {
+                    warn!("failed to recover refresh grant: {err:?}");
+                }
+                Err(err) => {
+                    warn!("actor error while recovering refresh grant: {err}");
                 }
             }
-            Ok(Ok(None)) => {
-                warn!("refresh token grant not found in issuer state");
-            }
-            Ok(Err(err)) => {
-                warn!("failed to recover refresh grant: {err:?}");
-            }
-            Err(err) => {
-                warn!("actor error while recovering refresh grant: {err}");
-            }
+        }
+    }
+
+    if let Some((refresh_token_value, grant)) = new_refresh_for_storage {
+        if let Err(err) = persist_refresh_token(db.get_ref(), &refresh_token_value, &grant).await {
+            error!("failed to store refresh token: {err}");
         }
     }
 
@@ -658,6 +715,59 @@ impl Handler<LookupRefreshGrant> for State {
     }
 }
 
+impl Handler<IssueClientCredentialsToken> for State {
+    type Result = Result<(IssuedToken, Grant), WebError>;
+
+    fn handle(&mut self, msg: IssueClientCredentialsToken, _: &mut Self::Context) -> Self::Result {
+        let IssueClientCredentialsToken { request } = msg;
+
+        let owner_principal =
+            verify_internet_identity(&request, &self.challenge_store).map_err(ii_error_to_web)?;
+
+        let client_id =
+            get_param(&request, "client_id").unwrap_or_else(|| "LocalClient".to_string());
+        let scope_text =
+            get_param(&request, "scope").unwrap_or_else(|| "default offline_access".to_string());
+        let scope: Scope = scope_text
+            .parse()
+            .map_err(|_| WebError::Endpoint(OAuthError::BadRequest))?;
+
+        let bound = self.endpoint.registrar.bound_redirect(ClientUrl {
+            client_id: Cow::Owned(client_id.clone()),
+            redirect_uri: None,
+        });
+        let bound_client = bound.map_err(|_| WebError::Endpoint(OAuthError::BadRequest))?;
+        let redirect_registered = bound_client.redirect_uri.into_owned();
+        let redirect_uri: url::Url = redirect_registered.into();
+
+        let grant_template = Grant {
+            owner_id: owner_principal,
+            client_id: client_id.clone(),
+            scope: scope.clone(),
+            redirect_uri,
+            until: Utc::now() + ChronoDuration::hours(1),
+            extensions: Extensions::default(),
+        };
+
+        let issued = self
+            .endpoint
+            .issuer
+            .issue(grant_template.clone())
+            .map_err(|_| WebError::InternalError(Some("failed to issue token".into())))?;
+
+        let stored_grant = if let Some(refresh) = issued.refresh.as_ref() {
+            match self.endpoint.issuer.recover_refresh(refresh) {
+                Ok(Some(grant)) => grant,
+                _ => grant_template,
+            }
+        } else {
+            grant_template
+        };
+
+        Ok((issued, stored_grant))
+    }
+}
+
 struct InternetIdentitySolicitor {
     challenge_store: ChallengeStoreHandle,
 }
@@ -692,9 +802,6 @@ where
 
         match ex {
             Extras::Authorize => op.run(
-                self.with_solicitor(InternetIdentitySolicitor::new(self.challenge_store.clone())),
-            ),
-            Extras::ClientCredentials => op.run(
                 self.with_solicitor(InternetIdentitySolicitor::new(self.challenge_store.clone())),
             ),
             _ => op.run(&mut self.endpoint),

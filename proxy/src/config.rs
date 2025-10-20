@@ -72,7 +72,11 @@ pub struct Args {
     pub config_file: Option<String>,
     #[arg(short, long = "db", help = "DB URL")]
     pub db: Option<String>,
-    #[arg(short, long = "frontend.origin", help = "Frontend origin URL (for CORS)")]
+    #[arg(
+        short,
+        long = "frontend.origin",
+        help = "Frontend origin URL (for CORS)"
+    )]
     pub frontend_origin: Option<String>,
     #[arg(long = "proxy.host", help = "Bind proxy to host")]
     pub bind_proxy_host: Option<String>,

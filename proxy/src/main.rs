@@ -7,12 +7,12 @@ mod models;
 mod schema;
 
 use actix::Actor;
+use actix_cors::Cors;
 use actix_web::{
     http::StatusCode,
     web::{self, Data},
     App, HttpResponse, HttpServer,
 };
-use actix_cors::Cors;
 use anyhow::bail;
 use anyhow::{anyhow, Context};
 use cache::{cache::BinaryCache, mem_cache::BinaryMemCache};
