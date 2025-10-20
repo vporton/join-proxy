@@ -11,7 +11,7 @@ use ic_ed25519::PublicKey as Ed25519PublicKey;
 use k256::ecdsa::signature::Verifier;
 use k256::{
     ecdsa::{Signature as K256Signature, VerifyingKey as K256VerifyingKey},
-    EncodedPoint as K256EncodedPoint, Secp256k1,
+    Secp256k1,
 };
 use log::{error, warn};
 use oxide_auth::primitives::grant::{Extensions, Grant};
@@ -28,7 +28,7 @@ use oxide_auth_actix::{
 };
 use p256::{
     ecdsa::{Signature as P256Signature, VerifyingKey as P256VerifyingKey},
-    EncodedPoint as P256EncodedPoint, NistP256,
+    NistP256,
 };
 use pkcs8::{spki::SubjectPublicKeyInfoRef, AssociatedOid, ObjectIdentifier};
 use rand::rngs::OsRng;
@@ -340,40 +340,33 @@ fn verify_signature(
         .map_err(|_| IiAuthError::InvalidPublicKey)?;
 
     if spki.algorithm.oid == ALGORITHM_OID {
-        let params = spki
+        let curve = spki
             .algorithm
             .parameters
-            .ok_or(IiAuthError::UnsupportedKeyAlgorithm)?;
-        let params = params
-            .decode_as::<EcParameters>()
-            .map_err(|_| IiAuthError::InvalidPublicKey)?;
-        let curve = params
-            .named_curve()
-            .ok_or(IiAuthError::UnsupportedKeyAlgorithm)?;
+            .and_then(|params| params.decode_as::<EcParameters>().ok())
+            .and_then(|params| params.named_curve());
 
-        if curve == Secp256k1::OID {
-            let point = K256EncodedPoint::from_bytes(spki.subject_public_key.raw_bytes())
-                .map_err(|_| IiAuthError::InvalidPublicKey)?;
-            let vk = K256VerifyingKey::from_encoded_point(&point)
-                .map_err(|_| IiAuthError::InvalidPublicKey)?;
-            let sig =
-                K256Signature::try_from(signature).map_err(|_| IiAuthError::InvalidSignature)?;
-            vk.verify(message, &sig)
-                .map_err(|_| IiAuthError::InvalidSignature)?;
-            Ok(())
-        } else if curve == NistP256::OID {
-            let point = P256EncodedPoint::from_bytes(spki.subject_public_key.raw_bytes())
-                .map_err(|_| IiAuthError::InvalidPublicKey)?;
-            let vk = P256VerifyingKey::from_encoded_point(&point)
-                .map_err(|_| IiAuthError::InvalidPublicKey)?;
-            let sig =
-                P256Signature::try_from(signature).map_err(|_| IiAuthError::InvalidSignature)?;
-            vk.verify(message, &sig)
-                .map_err(|_| IiAuthError::InvalidSignature)?;
-            Ok(())
-        } else {
-            Err(IiAuthError::UnsupportedKeyAlgorithm)
+        match curve {
+            Some(oid) if oid == Secp256k1::OID => {
+                verify_k256_key(spki.subject_public_key.raw_bytes(), signature, message)
+            }
+            Some(oid) if oid == NistP256::OID => {
+                verify_p256_key(spki.subject_public_key.raw_bytes(), signature, message)
+            }
+            None => {
+                if verify_p256_key(spki.subject_public_key.raw_bytes(), signature, message).is_ok()
+                {
+                    Ok(())
+                } else {
+                    verify_k256_key(spki.subject_public_key.raw_bytes(), signature, message)
+                }
+            }
+            _ => Err(IiAuthError::UnsupportedKeyAlgorithm),
         }
+    } else if spki.algorithm.oid == NistP256::OID {
+        verify_p256_key(spki.subject_public_key.raw_bytes(), signature, message)
+    } else if spki.algorithm.oid == Secp256k1::OID {
+        verify_k256_key(spki.subject_public_key.raw_bytes(), signature, message)
     } else if spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.101.112") {
         let vk = Ed25519PublicKey::deserialize_raw(spki.subject_public_key.raw_bytes())
             .map_err(|_| IiAuthError::InvalidPublicKey)?;
@@ -382,6 +375,30 @@ fn verify_signature(
     } else {
         Err(IiAuthError::UnsupportedKeyAlgorithm)
     }
+}
+
+fn verify_p256_key(
+    subject_public_key: &[u8],
+    signature: &[u8],
+    message: &[u8],
+) -> Result<(), IiAuthError> {
+    let vk = P256VerifyingKey::from_sec1_bytes(subject_public_key)
+        .map_err(|_| IiAuthError::InvalidPublicKey)?;
+    let sig = P256Signature::try_from(signature).map_err(|_| IiAuthError::InvalidSignature)?;
+    vk.verify(message, &sig)
+        .map_err(|_| IiAuthError::InvalidSignature)
+}
+
+fn verify_k256_key(
+    subject_public_key: &[u8],
+    signature: &[u8],
+    message: &[u8],
+) -> Result<(), IiAuthError> {
+    let vk = K256VerifyingKey::from_sec1_bytes(subject_public_key)
+        .map_err(|_| IiAuthError::InvalidPublicKey)?;
+    let sig = K256Signature::try_from(signature).map_err(|_| IiAuthError::InvalidSignature)?;
+    vk.verify(message, &sig)
+        .map_err(|_| IiAuthError::InvalidSignature)
 }
 
 fn verify_internet_identity(
