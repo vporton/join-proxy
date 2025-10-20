@@ -16,7 +16,7 @@ use k256::{
 use log::{error, warn};
 use oxide_auth::primitives::grant::{Extensions, Grant};
 use oxide_auth::{
-    endpoint::{Endpoint, OAuthError, OwnerConsent, OwnerSolicitor, QueryParameter, Solicitation},
+    endpoint::{Endpoint, OwnerConsent, OwnerSolicitor, QueryParameter, Solicitation, WebResponse},
     frontends::simple::endpoint::{ErrorInto, Generic, Vacant},
     primitives::prelude::{
         AuthMap, Client, ClientMap, ClientUrl, IssuedToken, Issuer, RandomGenerator, Registrar,
@@ -88,8 +88,13 @@ pub struct IssueClientCredentialsToken {
     pub request: OAuthRequest,
 }
 
+pub enum ClientCredentialsIssueError {
+    InvalidRequest(String),
+    Internal(WebError),
+}
+
 impl Message for IssueClientCredentialsToken {
-    type Result = Result<(IssuedToken, Grant), WebError>;
+    type Result = Result<(IssuedToken, Grant), ClientCredentialsIssueError>;
 }
 
 const CHALLENGE_LEN: usize = 32;
@@ -410,12 +415,16 @@ fn owner_consent_from_error(err: IiAuthError) -> OwnerConsent<OAuthResponse> {
     }
 }
 
-fn ii_error_to_web(err: IiAuthError) -> WebError {
-    if err.is_client_error() {
-        WebError::Endpoint(OAuthError::BadRequest)
-    } else {
-        WebError::InternalError(Some(err.to_string()))
-    }
+fn build_invalid_request_response(message: &str) -> Result<OAuthResponse, WebError> {
+    let payload = json!({
+        "error": "invalid_request",
+        "error_description": message,
+    });
+
+    let mut response = OAuthResponse::ok();
+    response.client_error()?;
+    response = response.content_type("application/json")?;
+    Ok(response.body(&payload.to_string()))
 }
 
 fn build_client_credentials_response(
@@ -539,16 +548,22 @@ pub async fn token(
 
     let response = match grant_type_str {
         Some("client_credentials") => {
-            let (issued, grant) = state
+            match state
                 .send(IssueClientCredentialsToken { request: req })
                 .await
-                .map_err(|err| WebError::InternalError(Some(err.to_string())))??;
-
-            if let Some(refresh) = issued.refresh.clone() {
-                new_refresh_for_storage = Some((refresh.clone(), grant.clone()));
+                .map_err(|err| WebError::InternalError(Some(err.to_string())))?
+            {
+                Ok((issued, grant)) => {
+                    if let Some(refresh) = issued.refresh.clone() {
+                        new_refresh_for_storage = Some((refresh.clone(), grant.clone()));
+                    }
+                    build_client_credentials_response(&issued, &grant.scope)?
+                }
+                Err(ClientCredentialsIssueError::InvalidRequest(message)) => {
+                    return build_invalid_request_response(&message)
+                }
+                Err(ClientCredentialsIssueError::Internal(err)) => return Err(err),
             }
-
-            build_client_credentials_response(&issued, &grant.scope)?
         }
         Some("refresh_token") => state
             .send(Refresh(req).wrap(Extras::Nothing))
@@ -716,13 +731,13 @@ impl Handler<LookupRefreshGrant> for State {
 }
 
 impl Handler<IssueClientCredentialsToken> for State {
-    type Result = Result<(IssuedToken, Grant), WebError>;
+    type Result = Result<(IssuedToken, Grant), ClientCredentialsIssueError>;
 
     fn handle(&mut self, msg: IssueClientCredentialsToken, _: &mut Self::Context) -> Self::Result {
         let IssueClientCredentialsToken { request } = msg;
 
-        let owner_principal =
-            verify_internet_identity(&request, &self.challenge_store).map_err(ii_error_to_web)?;
+        let owner_principal = verify_internet_identity(&request, &self.challenge_store)
+            .map_err(|err| ClientCredentialsIssueError::InvalidRequest(err.to_string()))?;
 
         let client_id =
             get_param(&request, "client_id").unwrap_or_else(|| "LocalClient".to_string());
@@ -730,13 +745,14 @@ impl Handler<IssueClientCredentialsToken> for State {
             get_param(&request, "scope").unwrap_or_else(|| "default offline_access".to_string());
         let scope: Scope = scope_text
             .parse()
-            .map_err(|_| WebError::Endpoint(OAuthError::BadRequest))?;
+            .map_err(|_| ClientCredentialsIssueError::InvalidRequest("invalid scope".into()))?;
 
         let bound = self.endpoint.registrar.bound_redirect(ClientUrl {
             client_id: Cow::Owned(client_id.clone()),
             redirect_uri: None,
         });
-        let bound_client = bound.map_err(|_| WebError::Endpoint(OAuthError::BadRequest))?;
+        let bound_client = bound
+            .map_err(|_| ClientCredentialsIssueError::InvalidRequest("unknown client".into()))?;
         let redirect_registered = bound_client.redirect_uri.into_owned();
         let redirect_uri: url::Url = redirect_registered.into();
 
@@ -753,15 +769,24 @@ impl Handler<IssueClientCredentialsToken> for State {
             .endpoint
             .issuer
             .issue(grant_template.clone())
-            .map_err(|_| WebError::InternalError(Some("failed to issue token".into())))?;
+            .map_err(|_| {
+                ClientCredentialsIssueError::Internal(WebError::InternalError(Some(
+                    "failed to issue token".into(),
+                )))
+            })?;
 
         let stored_grant = if let Some(refresh) = issued.refresh.as_ref() {
             match self.endpoint.issuer.recover_refresh(refresh) {
                 Ok(Some(grant)) => grant,
-                _ => grant_template,
+                Ok(None) => grant_template.clone(),
+                Err(_) => {
+                    return Err(ClientCredentialsIssueError::Internal(
+                        WebError::InternalError(Some("failed to recover refresh".into())),
+                    ))
+                }
             }
         } else {
-            grant_template
+            grant_template.clone()
         };
 
         Ok((issued, stored_grant))
