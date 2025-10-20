@@ -77,21 +77,6 @@ pub async fn refresh(
     state.send(Refresh(req).wrap(Extras::Nothing)).await?
 }
 
-async fn index(
-    (req, state): (OAuthResource, web::Data<Addr<State>>),
-) -> Result<OAuthResponse, WebError> {
-    match state
-        .send(Resource(req.into_request()).wrap(Extras::Nothing))
-        .await?
-    {
-        Ok(_grant) => Ok(OAuthResponse::ok()
-            .content_type("text/plain")?
-            .body("Hello world!")),
-        Err(Ok(e)) => Ok(e.body(DENY_TEXT)),
-        Err(Err(e)) => Err(e),
-    }
-}
-
 impl State {
     pub fn preconfigured() -> Self {
         State {
