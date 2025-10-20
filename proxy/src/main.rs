@@ -394,8 +394,10 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow!("Cannot read config file {}: {}", cli.config_file, e))?;
     let mut config: Config = toml::from_str(&config_string)
         .map_err(|e| anyhow!("Cannot read config file {}: {}", cli.config_file, e))?;
-    if let Some() = {
+    if let Some(proxy_host) = cli.bind_proxy_host {
+        config.bind_proxy.host = proxy_host;
     }
+    // TODO
     if let Some(callback) = &mut config.callback {
         if callback.ic_url.is_none() && callback.ic_local {
             callback.ic_url = Some("http://localhost:8000".to_string())
@@ -434,7 +436,7 @@ async fn main() -> anyhow::Result<()> {
     let oauth_state = auth::State::preconfigured().start();
 
     let config2 = config.clone(); // TODO: hack
-    let (cert_file, key_file) = (config.bind_proxy.cert_file.clone(), config.bind_proxy.key_file.clone());
+    let (cert_file, key_file) = (config.cert_file.clone(), config.key_file.clone());
     let proxy_server = HttpServer::new(move || {
         let mut builder = ClientBuilder::new();
         if let Some(t) = config.upstream_timeouts.connect_timeout {
@@ -480,7 +482,7 @@ async fn main() -> anyhow::Result<()> {
         proxy_server.bind(proxy_server_url)
     }?
         .run();
-    let (cert_file, key_file) = (config2.bind_api.cert_file.clone(), config2.bind_api.key_file.clone());
+    let (cert_file, key_file) = (config2.cert_file.clone(), config2.key_file.clone());
     let api_server = HttpServer::new(move || {
         let builder = ClientBuilder::new();
         let state = State {

@@ -1,6 +1,5 @@
 use clap::{clap_derive, command, Parser};
 use ic_agent::export::Principal;
-use merge::{Merge, option::overwrite_by_some};
 use serde::Deserializer;
 use serde_derive::Deserialize;
 use serde::de::Error;
