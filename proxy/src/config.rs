@@ -31,13 +31,10 @@ pub struct CacheConfig {
     pub cache_timeout: Duration,
 }
 
-#[derive(Clone, Deserialize, Debug, Default)]
+#[derive(Clone, Deserialize, Debug)]
 pub struct Serve {
-    // #[serde(default="default_host")]
     pub host: String,
-    // #[serde(default="default_port")]
     pub port: u16,
-    // #[serde(default="default_https")]
     pub https: bool,
 }
 
