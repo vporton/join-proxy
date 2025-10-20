@@ -385,8 +385,25 @@ fn verify_p256_key(
     signature: &[u8],
     message: &[u8],
 ) -> Result<(), IiAuthError> {
-    let vk = P256VerifyingKey::from_sec1_bytes(subject_public_key)
-        .map_err(|_| IiAuthError::InvalidPublicKey)?;
+    let normalized = normalize_sec1_bytes(subject_public_key);
+    if normalized.as_ref() != subject_public_key {
+        warn!(
+            "Normalizing P-256 public key from {} bytes to {} bytes (missing SEC1 prefix)",
+            subject_public_key.len(),
+            normalized.len()
+        );
+    }
+
+    let vk = P256VerifyingKey::from_sec1_bytes(normalized.as_ref()).map_err(|err| {
+        warn!(
+            "Failed to parse P-256 public key ({:?}) encoded as {} bytes: {}",
+            hex::encode(subject_public_key),
+            subject_public_key.len(),
+            err
+        );
+        IiAuthError::InvalidPublicKey
+    })?;
+
     let sig = P256Signature::try_from(signature).map_err(|_| IiAuthError::InvalidSignature)?;
     vk.verify(message, &sig)
         .map_err(|_| IiAuthError::InvalidSignature)
@@ -418,11 +435,45 @@ fn verify_k256_key(
     signature: &[u8],
     message: &[u8],
 ) -> Result<(), IiAuthError> {
-    let vk = K256VerifyingKey::from_sec1_bytes(subject_public_key)
-        .map_err(|_| IiAuthError::InvalidPublicKey)?;
+    let normalized = normalize_sec1_bytes(subject_public_key);
+    if normalized.as_ref() != subject_public_key {
+        warn!(
+            "Normalizing secp256k1 public key from {} bytes to {} bytes (missing SEC1 prefix)",
+            subject_public_key.len(),
+            normalized.len()
+        );
+    }
+
+    let vk = K256VerifyingKey::from_sec1_bytes(normalized.as_ref()).map_err(|err| {
+        warn!(
+            "Failed to parse secp256k1 public key ({:?}) encoded as {} bytes: {}",
+            hex::encode(subject_public_key),
+            subject_public_key.len(),
+            err
+        );
+        IiAuthError::InvalidPublicKey
+    })?;
+
     let sig = K256Signature::try_from(signature).map_err(|_| IiAuthError::InvalidSignature)?;
     vk.verify(message, &sig)
         .map_err(|_| IiAuthError::InvalidSignature)
+}
+
+fn normalize_sec1_bytes(bytes: &[u8]) -> Cow<'_, [u8]> {
+    if bytes.is_empty() {
+        return Cow::Borrowed(bytes);
+    }
+
+    match bytes[0] {
+        0x02 | 0x03 | 0x04 => Cow::Borrowed(bytes),
+        _ if bytes.len() == 64 => {
+            let mut owned = Vec::with_capacity(65);
+            owned.push(0x04);
+            owned.extend_from_slice(bytes);
+            Cow::Owned(owned)
+        }
+        _ => Cow::Borrowed(bytes),
+    }
 }
 
 fn verify_internet_identity(
