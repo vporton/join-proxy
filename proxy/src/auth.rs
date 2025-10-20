@@ -8,6 +8,7 @@ use elliptic_curve::ALGORITHM_OID;
 use ic_agent::export::Principal;
 use ic_agent::identity::{Delegation, SignedDelegation};
 use ic_ed25519::PublicKey as Ed25519PublicKey;
+use k256::ecdsa::signature::hazmat::PrehashVerifier as _;
 use k256::{
     ecdsa::{Signature as K256Signature, VerifyingKey as K256VerifyingKey},
     Secp256k1,
@@ -344,9 +345,17 @@ fn verify_signature(
             vk.verify_signature(message, signature)
                 .map_err(|_| IiAuthError::InvalidSignature)
         }
-        SignatureAlgorithm::EcdsaP256 => verify_p256_signature(key_bytes, signature, message),
+        SignatureAlgorithm::EcdsaP256 => {
+            let digest = Sha256::digest(message);
+            let mut hash = [0u8; 32];
+            hash.copy_from_slice(digest.as_slice());
+            verify_p256_signature(key_bytes, signature, hash)
+        }
         SignatureAlgorithm::EcdsaSecp256k1 => {
-            verify_k256_signature(key_bytes, signature, message)
+            let digest = Sha256::digest(message);
+            let mut hash = [0u8; 32];
+            hash.copy_from_slice(digest.as_slice());
+            verify_k256_signature(key_bytes, signature, hash)
         }
     }
 }
@@ -400,18 +409,14 @@ fn determine_signature_algorithm(
 fn verify_p256_signature(
     subject_public_key: &[u8],
     signature: &[u8],
-    message: &[u8],
+    message_hash: [u8; 32],
 ) -> Result<(), IiAuthError> {
     let candidates = generate_sec1_candidates(subject_public_key, CurveKind::P256);
     let sig = P256Signature::try_from(signature).map_err(|_| IiAuthError::InvalidSignature)?;
 
-    let digest = Sha256::digest(message);
-    let mut hash = [0u8; 32];
-    hash.copy_from_slice(digest.as_slice());
-
     for (idx, candidate) in candidates.iter().enumerate() {
         match P256VerifyingKey::from_sec1_bytes(candidate) {
-            Ok(vk) => match <P256VerifyingKey as p256::ecdsa::signature::hazmat::PrehashVerifier<P256Signature>>::verify_prehash(&vk, &hash, &sig) {
+            Ok(vk) => match vk.verify_prehash(&message_hash, &sig) {
                 Ok(()) => {
                     if idx > 0 {
                         warn!(
@@ -436,18 +441,14 @@ fn verify_p256_signature(
 fn verify_k256_signature(
     subject_public_key: &[u8],
     signature: &[u8],
-    message: &[u8],
+    message_hash: [u8; 32],
 ) -> Result<(), IiAuthError> {
     let candidates = generate_sec1_candidates(subject_public_key, CurveKind::Secp256k1);
     let sig = K256Signature::try_from(signature).map_err(|_| IiAuthError::InvalidSignature)?;
 
-    let digest = Sha256::digest(message);
-    let mut hash = [0u8; 32];
-    hash.copy_from_slice(digest.as_slice());
-
     for (idx, candidate) in candidates.iter().enumerate() {
         match K256VerifyingKey::from_sec1_bytes(candidate) {
-            Ok(vk) => match <K256VerifyingKey as k256::ecdsa::signature::hazmat::PrehashVerifier<K256Signature>>::verify_prehash(&vk, &hash, &sig) {
+            Ok(vk) => match vk.verify_prehash(&message_hash, &sig) {
                 Ok(()) => {
                     if idx > 0 {
                         warn!(
