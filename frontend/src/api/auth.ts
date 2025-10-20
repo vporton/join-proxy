@@ -195,3 +195,13 @@ export async function refreshAccessToken(
 
   return postTokenRequest(params, apiOrigin);
 }
+function detectP256Point(bytes: Uint8Array) {
+  const rest = bytes.subarray(21);
+  const prefix = rest[0];
+  const x = rest.subarray(1, 22);
+  const y = rest.subarray(22);
+  console.log('prefix', prefix.toString(16), 'x', Buffer.from(x).toString('hex'), 'y', Buffer.from(y).toString('hex'));
+}
+
+const pk = new Uint8Array(Buffer.from('303c300c060a2b0601040183b8430102032c000affffffffff9000010101fc3fed47a82ee71224f2861b0d36ab05a9dbf43ca8a7339bee29c939187c136e', 'hex'));
+detectP256Point(pk);

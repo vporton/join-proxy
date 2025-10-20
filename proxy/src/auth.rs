@@ -385,21 +385,31 @@ fn verify_p256_key(
     signature: &[u8],
     message: &[u8],
 ) -> Result<(), IiAuthError> {
-    let normalized = normalize_sec1_bytes(subject_public_key, CurveKind::P256);
-
-    let vk = P256VerifyingKey::from_sec1_bytes(normalized.as_ref()).map_err(|err| {
-        warn!(
-            "Failed to parse P-256 public key ({:?}) encoded as {} bytes: {}",
-            hex::encode(subject_public_key),
-            subject_public_key.len(),
-            err
-        );
-        IiAuthError::InvalidPublicKey
-    })?;
-
+    let candidates = generate_sec1_candidates(subject_public_key, CurveKind::P256);
     let sig = P256Signature::try_from(signature).map_err(|_| IiAuthError::InvalidSignature)?;
-    vk.verify(message, &sig)
-        .map_err(|_| IiAuthError::InvalidSignature)
+
+    for (idx, candidate) in candidates.iter().enumerate() {
+        match P256VerifyingKey::from_sec1_bytes(candidate) {
+            Ok(vk) => match vk.verify(message, &sig) {
+                Ok(()) => {
+                    if idx > 0 {
+                        warn!(
+                            "Using alternate SEC1 interpretation for P-256 public key (candidate #{})",
+                            idx
+                        );
+                    }
+                    return Ok(());
+                }
+                Err(err) => warn!(
+                    "P-256 SEC1 candidate #{idx} parsed but signature verification failed: {}",
+                    err
+                ),
+            },
+            Err(err) => warn!("P-256 SEC1 candidate #{idx} failed to parse: {}", err),
+        }
+    }
+
+    Err(IiAuthError::InvalidPublicKey)
 }
 
 fn fallback_ecc_verification(
@@ -407,10 +417,8 @@ fn fallback_ecc_verification(
     signature: &[u8],
     message: &[u8],
 ) -> Result<(), IiAuthError> {
-    match verify_p256_key(subject_public_key, signature, message) {
-        Ok(()) => return Ok(()),
-        Err(IiAuthError::InvalidPublicKey) => {}
-        Err(other) => return Err(other),
+    if verify_p256_key(subject_public_key, signature, message).is_ok() {
+        return Ok(());
     }
 
     match verify_k256_key(subject_public_key, signature, message) {
@@ -428,21 +436,31 @@ fn verify_k256_key(
     signature: &[u8],
     message: &[u8],
 ) -> Result<(), IiAuthError> {
-    let normalized = normalize_sec1_bytes(subject_public_key, CurveKind::Secp256k1);
-
-    let vk = K256VerifyingKey::from_sec1_bytes(normalized.as_ref()).map_err(|err| {
-        warn!(
-            "Failed to parse secp256k1 public key ({:?}) encoded as {} bytes: {}",
-            hex::encode(subject_public_key),
-            subject_public_key.len(),
-            err
-        );
-        IiAuthError::InvalidPublicKey
-    })?;
-
+    let candidates = generate_sec1_candidates(subject_public_key, CurveKind::Secp256k1);
     let sig = K256Signature::try_from(signature).map_err(|_| IiAuthError::InvalidSignature)?;
-    vk.verify(message, &sig)
-        .map_err(|_| IiAuthError::InvalidSignature)
+
+    for (idx, candidate) in candidates.iter().enumerate() {
+        match K256VerifyingKey::from_sec1_bytes(candidate) {
+            Ok(vk) => match vk.verify(message, &sig) {
+                Ok(()) => {
+                    if idx > 0 {
+                        warn!(
+                            "Using alternate SEC1 interpretation for secp256k1 public key (candidate #{})",
+                            idx
+                        );
+                    }
+                    return Ok(());
+                }
+                Err(err) => warn!(
+                    "secp256k1 SEC1 candidate #{idx} parsed but signature verification failed: {}",
+                    err
+                ),
+            },
+            Err(err) => warn!("secp256k1 SEC1 candidate #{idx} failed to parse: {}", err),
+        }
+    }
+
+    Err(IiAuthError::InvalidPublicKey)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -451,110 +469,109 @@ enum CurveKind {
     Secp256k1,
 }
 
-fn normalize_sec1_bytes(bytes: &[u8], kind: CurveKind) -> Cow<'_, [u8]> {
-    if bytes.is_empty() {
-        return Cow::Borrowed(bytes);
-    }
-
-    match bytes[0] {
-        0x02 | 0x03 | 0x04 => Cow::Borrowed(bytes),
-        _ if bytes.len() == 64 => convert_raw_xy(bytes),
-        prefix if bytes.len() > 1 && (bytes.len() - 1) % 2 == 0 => {
-            build_from_vendor_encoding(bytes, prefix, kind)
-        }
-        _ => Cow::Borrowed(bytes),
-    }
-}
-
-fn convert_raw_xy(bytes: &[u8]) -> Cow<'_, [u8]> {
-    let mut owned = Vec::with_capacity(65);
-    owned.push(0x04);
-    owned.extend_from_slice(bytes);
-    warn!("Assuming uncompressed SEC1 point with missing prefix (64 bytes -> 65 bytes)");
-    Cow::Owned(owned)
-}
-
 #[derive(Clone, Copy, Debug)]
 enum Endian {
     Big,
     Little,
 }
 
-fn expand_coord(coord: &[u8], endian: Endian) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    let len = coord.len().min(32);
-    match endian {
-        Endian::Big => {
-            out[32 - len..].copy_from_slice(&coord[coord.len() - len..]);
-        }
-        Endian::Little => {
-            for (i, byte) in coord.iter().take(len).enumerate() {
-                out[i] = *byte;
+fn generate_sec1_candidates(bytes: &[u8], kind: CurveKind) -> Vec<Vec<u8>> {
+    let mut candidates: Vec<Vec<u8>> = Vec::new();
+    {
+        let mut push_candidate = |data: Vec<u8>| {
+            if !candidates
+                .iter()
+                .any(|existing| existing.as_slice() == data.as_slice())
+            {
+                candidates.push(data);
             }
-            out[..].reverse();
+        };
+
+        if let Some(first) = bytes.first() {
+            if matches!(first, 0x02 | 0x03 | 0x04) {
+                push_candidate(bytes.to_vec());
+                return candidates;
+            }
+        }
+
+        if bytes.len() == 64 {
+            let mut owned = Vec::with_capacity(65);
+            owned.push(0x04);
+            owned.extend_from_slice(bytes);
+            warn!("Assuming uncompressed SEC1 point with missing prefix (64 bytes -> 65 bytes)");
+            push_candidate(owned);
+        }
+
+        if let Some(candidate) = reconstruct_truncated_vec(bytes, kind, Endian::Big) {
+            push_candidate(candidate);
+        }
+        if let Some(candidate) = reconstruct_truncated_vec(bytes, kind, Endian::Little) {
+            push_candidate(candidate);
+        }
+
+        if let Some(candidate) = rebuild_from_compact_vec(bytes, kind, Endian::Big) {
+            push_candidate(candidate);
+        }
+        if let Some(candidate) = rebuild_from_compact_vec(bytes, kind, Endian::Little) {
+            push_candidate(candidate);
+        }
+
+        let needs_default = candidates.is_empty();
+        if needs_default {
+            if !candidates
+                .iter()
+                .any(|existing| existing.as_slice() == bytes)
+            {
+                candidates.push(bytes.to_vec());
+            }
         }
     }
-    out
+
+    candidates
 }
 
-fn build_from_vendor_encoding(bytes: &[u8], prefix: u8, kind: CurveKind) -> Cow<'_, [u8]> {
-    let result = reconstruct_truncated_encoding(bytes, prefix, kind)
-        .or_else(|| rebuild_from_compact(bytes, prefix, kind, Endian::Big))
-        .or_else(|| rebuild_from_compact(bytes, prefix, kind, Endian::Little));
-
-    result.unwrap_or_else(|| Cow::Borrowed(bytes))
-}
-
-fn reconstruct_truncated_encoding(
-    bytes: &[u8],
-    prefix: u8,
-    kind: CurveKind,
-) -> Option<Cow<'_, [u8]>> {
-    if prefix != 0x0a || kind != CurveKind::P256 || bytes.len() != 43 {
+fn reconstruct_truncated_vec(bytes: &[u8], kind: CurveKind, endian: Endian) -> Option<Vec<u8>> {
+    if kind != CurveKind::P256 || bytes.len() < 3 {
         return None;
     }
 
-    let x = &bytes[1..22];
-    let y = &bytes[22..];
+    let prefix = bytes[0];
+    if prefix != 0x0a {
+        return None;
+    }
+
+    let remainder = &bytes[1..];
+    if remainder.len() < 4 {
+        return None;
+    }
+
+    let split = remainder.len() / 2;
+    let (x_bytes, y_bytes) = remainder.split_at(split);
+    let x_full = expand_coord_with_endian(x_bytes, endian)?;
+    let y_full = expand_coord_with_endian(y_bytes, endian)?;
 
     let mut owned = Vec::with_capacity(65);
     owned.push(0x04);
-
-    owned.extend_from_slice(&expand_truncated_coord(x));
-    owned.extend_from_slice(&expand_truncated_coord(y));
+    owned.extend_from_slice(&x_full);
+    owned.extend_from_slice(&y_full);
 
     warn!(
-        "Reconstructed SEC1 point from truncated vendor encoding (prefix 0x{:02x}, x_len {}, y_len {})",
+        "Reconstructed SEC1 point from truncated vendor encoding (prefix 0x{:02x}, x_len {}, y_len {}, endian {:?})",
         prefix,
-        x.len(),
-        y.len()
+        x_bytes.len(),
+        y_bytes.len(),
+        endian
     );
 
-    Some(Cow::Owned(owned))
+    Some(owned)
 }
 
-fn expand_truncated_coord(coord: &[u8]) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    let len = coord.len().min(32);
-    out[32 - len..].copy_from_slice(&coord[coord.len() - len..]);
-    out
-}
-
-fn rebuild_from_compact(
-    bytes: &[u8],
-    prefix: u8,
-    kind: CurveKind,
-    endian: Endian,
-) -> Option<Cow<'_, [u8]>> {
-    let coord_len = (bytes.len() - 1) / 2;
-    if coord_len == 0 || coord_len > 32 {
-        warn!(
-            "Compact encoding prefix 0x{:02x} with coord_len {} is outside expected bounds",
-            prefix, coord_len
-        );
+fn rebuild_from_compact_vec(bytes: &[u8], kind: CurveKind, endian: Endian) -> Option<Vec<u8>> {
+    if bytes.len() <= 1 {
         return None;
     }
 
+    let prefix = bytes[0];
     let expected_prefix = match kind {
         CurveKind::P256 => 0x0a,
         CurveKind::Secp256k1 => 0x0b,
@@ -564,16 +581,58 @@ fn rebuild_from_compact(
         return None;
     }
 
+    let remainder = &bytes[1..];
+    if remainder.len() % 2 != 0 {
+        return None;
+    }
+
+    let coord_len = remainder.len() / 2;
+    if coord_len == 0 || coord_len > 32 {
+        warn!(
+            "Compact encoding prefix 0x{:02x} with coord_len {} is outside expected bounds",
+            prefix, coord_len
+        );
+        return None;
+    }
+
+    let (x_bytes, y_bytes) = remainder.split_at(coord_len);
+    let x_full = expand_coord_with_endian(x_bytes, endian)?;
+    let y_full = expand_coord_with_endian(y_bytes, endian)?;
+
     let mut owned = Vec::with_capacity(65);
     owned.push(0x04);
-    let (x, y) = bytes[1..].split_at(coord_len);
-    owned.extend_from_slice(&expand_coord(x, endian));
-    owned.extend_from_slice(&expand_coord(y, endian));
+    owned.extend_from_slice(&x_full);
+    owned.extend_from_slice(&y_full);
+
     warn!(
         "Reconstructed SEC1 point from compact encoding (prefix 0x{:02x}, coord_len {}, endian {:?})",
-        prefix, coord_len, endian
+        prefix,
+        coord_len,
+        endian
     );
-    Some(Cow::Owned(owned))
+
+    Some(owned)
+}
+
+fn expand_coord_with_endian(coord: &[u8], endian: Endian) -> Option<[u8; 32]> {
+    if coord.len() > 32 {
+        return None;
+    }
+
+    let mut out = [0u8; 32];
+    match endian {
+        Endian::Big => {
+            out[32 - coord.len()..].copy_from_slice(coord);
+        }
+        Endian::Little => {
+            for (i, byte) in coord.iter().enumerate() {
+                out[i] = *byte;
+            }
+            out[..].reverse();
+        }
+    }
+
+    Some(out)
 }
 
 fn verify_internet_identity(
