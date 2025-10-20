@@ -142,7 +142,7 @@ mod tests {
             let dfx = OurDFX::new(&mytest.test, &["--artificial-delay", "0"]).await?;
             let _proxy = TemporaryChild::spawn(&mut Command::new(
                 mytest.test.workspace_dir.join("target").join("debug").join("join-proxy")
-            ).current_dir(mytest.test.dir.path()), Capture { stdout: None, stderr: None }).context("Running Joining Proxy")?;
+            ).args(["-c", "config.toml"]).current_dir(mytest.test.dir.path()), Capture { stdout: None, stderr: None }).context("Running Joining Proxy")?;
             run_successful_command(Command::new(
                 "/root/.local/share/dfx/bin/dfx"
             ).args(["deploy"]).current_dir(mytest.test.dir.path().join("motoko")))?;
@@ -155,7 +155,7 @@ mod tests {
             let dfx = OurDFX::new(&mytest.test, &["--artificial-delay", "5000"]).await?;
             let _proxy = TemporaryChild::spawn(&mut Command::new(
                 mytest.test.workspace_dir.join("target").join("debug").join("join-proxy")
-            ).current_dir(mytest.test.dir.path()), Capture { stdout: None, stderr: None }).context("Running Joining Proxy")?;
+            ).args(["-c", "config.toml"]).current_dir(mytest.test.dir.path()), Capture { stdout: None, stderr: None }).context("Running Joining Proxy")?;
             run_successful_command(Command::new(
                 "/root/.local/share/dfx/bin/dfx"
             ).args(["deploy"]).current_dir(mytest.test.dir.path().join("motoko")))?;
@@ -172,7 +172,7 @@ mod tests {
         let dfx = OurDFX::new(&mytest.test, &["--artificial-delay", "0"]).await?; // --artificial-delay just to speed up tests
         let _proxy = TemporaryChild::spawn(&mut Command::new(
             mytest.test.workspace_dir.join("target").join("debug").join("join-proxy")
-        ).current_dir(mytest.test.dir.path()), Capture { stdout: None, stderr: None }).context("Running Joining Proxy")?;
+        ).args(["-c", "config.toml"]).current_dir(mytest.test.dir.path()), Capture { stdout: None, stderr: None }).context("Running Joining Proxy")?;
         run_successful_command(Command::new(
             "/root/.local/share/dfx/bin/dfx"
         ).args(["deploy"]).current_dir(mytest.test.dir.path().join("motoko")))?;
@@ -216,7 +216,7 @@ mod tests {
         let dfx = OurDFX::new(&mytest.test, &["--artificial-delay", "0"]).await?; // --artificial-delay just to speed up tests
         let _proxy = TemporaryChild::spawn(&mut Command::new(
             mytest.test.workspace_dir.join("target").join("debug").join("join-proxy")
-        ).current_dir(mytest.test.dir.path()), Capture { stdout: None, stderr: None }).context("Running Joining Proxy")?;
+        ).args(["-c", "config.toml"]).current_dir(mytest.test.dir.path()), Capture { stdout: None, stderr: None }).context("Running Joining Proxy")?;
         run_successful_command(Command::new(
             "/root/.local/share/dfx/bin/dfx"
         ).args(["deploy"]).current_dir(mytest.test.dir.path().join("motoko")))?;
