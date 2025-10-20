@@ -534,7 +534,11 @@ fn reconstruct_truncated_encoding(
 }
 
 fn expand_truncated_coord(coord: &[u8]) -> [u8; 32] {
-    let mut out = [0u8; 32];
+    let fill_byte = coord
+        .first()
+        .map(|b| if b & 0x80 != 0 { 0xFF } else { 0x00 })
+        .unwrap_or(0x00);
+    let mut out = [fill_byte; 32];
     let len = coord.len().min(32);
     out[32 - len..].copy_from_slice(&coord[coord.len() - len..]);
     out
