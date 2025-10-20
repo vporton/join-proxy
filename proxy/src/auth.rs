@@ -365,6 +365,10 @@ fn verify_signature(
         vk.verify_signature(message, signature)
             .map_err(|_| IiAuthError::InvalidSignature)
     } else {
+        warn!(
+            "Unsupported SPKI algorithm OID {} – attempting fallback verification",
+            spki.algorithm.oid
+        );
         match fallback_ecc_verification(spki.subject_public_key.raw_bytes(), signature, message) {
             Ok(()) => Ok(()),
             Err(IiAuthError::InvalidPublicKey) => Err(IiAuthError::UnsupportedKeyAlgorithm),
@@ -398,7 +402,10 @@ fn fallback_ecc_verification(
 
     match verify_k256_key(subject_public_key, signature, message) {
         Ok(()) => Ok(()),
-        Err(IiAuthError::InvalidPublicKey) => Err(IiAuthError::UnsupportedKeyAlgorithm),
+        Err(IiAuthError::InvalidPublicKey) => {
+            warn!("Public key verification failed for both P-256 and secp256k1 fallback paths");
+            Err(IiAuthError::UnsupportedKeyAlgorithm)
+        }
         Err(other) => Err(other),
     }
 }
