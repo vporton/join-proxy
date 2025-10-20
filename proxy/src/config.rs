@@ -73,8 +73,8 @@ pub struct Args {
     pub bind_api_https: Option<bool>,
     pub our_secret: Option<String>, // simple Bearer authentication
     pub require_x_principal: Option<bool>,
-    #[clap(skip)]
-    pub cache: CacheConfig,
+    #[arg(long="cache.timeout", value_parser = extract_duration_simple)]
+    pub cache_timeout: Option<Duration>,
     #[clap(skip)]
     pub upstream_timeouts: UpstreamTimeouts,
     #[clap(skip)]
@@ -109,14 +109,11 @@ fn default_ic_local() -> bool {
     false
 }
 
-fn extract_duration<'de, D>(s: &str) -> Result<Duration, D::Error>
-where
-    D: Deserializer<'de>,
-{
+fn extract_duration_simple(s: &str) -> Result<Duration, String> { // TODO@P3: Can use `&str` instead?
     let pos = s.find(|c: char| !c.is_numeric()).unwrap_or(s.len());
     let (value_str, unit) = s.split_at(pos);
 
-    let value: u64 = value_str.parse().map_err(serde::de::Error::custom)?;
+    let value: u64 = value_str.parse().map_err(|_| "Can't extract number")?;
 
     match unit {
         "d" => Ok(Duration::from_secs(value*3600*24)),
@@ -124,8 +121,15 @@ where
         "m" => Ok(Duration::from_secs(value*60)),
         "s" => Ok(Duration::from_secs(value)),
         "ms" => Ok(Duration::from_millis(value)),
-        _ => Err(serde::de::Error::custom("Invalid duration unit")),
+        _ => Err("Invalid duration unit".to_string()),
     }
+}
+
+fn extract_duration<'de, D>(s: &str) -> Result<Duration, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    extract_duration_simple(s).map_err(|_| serde::de::Error::custom("Invalid duration unit"))
 }
 
 fn parse_duration<'de, D>(deserializer: D) -> Result<Duration, D::Error>
@@ -179,6 +183,15 @@ impl Config {
         }
         if let Some(api_https) = cli.bind_api_https {
             self.bind_api.https = api_https;
+        }
+        if let Some(our_secret) = cli.our_secret {
+            self.our_secret = Some(our_secret);
+        }
+        if let Some(require_x_principal) = cli.require_x_principal {
+            self.require_x_principal = require_x_principal;
+        }
+        if let Some(cache_timeout) = cli.cache_timeout {
+            self.cache.cache_timeout = cache_timeout;
         }
     }
 }
