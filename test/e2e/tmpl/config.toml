@@ -29,13 +29,3 @@ cache_timeout = "1m" # How long responses are cached. See for format: https://ch
 connect_timeout = "20s"
 read_timeout = "30s"
 total_timeout = "60s"
-
-[request_headers]
-remove = []
-add = []
-
-[response_headers]
-remove = []
-add = []
-show_hit_miss = true
-add_forwarded_from_header = false

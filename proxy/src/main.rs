@@ -395,7 +395,8 @@ async fn main() -> anyhow::Result<()> {
         toml::from_str(&config_string)
             .map_err(|e| anyhow!("Cannot parse config file {}: {}", config_file, e))?
     } else {
-        Config::default()
+        // Config::default() // https://github.com/serde-rs/serde/issues/3002
+        toml::from_str("").unwrap()
     };
     config.update_from_args(cli);
     // TODO

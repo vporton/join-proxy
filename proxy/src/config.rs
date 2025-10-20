@@ -1,4 +1,4 @@
-use clap::{clap_derive, command, Parser};
+use clap::{command, Parser};
 use ic_agent::export::Principal;
 use serde::Deserializer;
 use serde_derive::Deserialize;
@@ -15,7 +15,7 @@ pub struct Callback {
     pub ic_url: Option<String>,
 }
 
-#[derive(Clone, Deserialize, Debug, Default)]
+#[derive(Clone, Deserialize, Debug/*, Default*/)] // https://github.com/serde-rs/serde/issues/3002
 pub struct UpstreamTimeouts {
     #[serde(default="default_upstream_connect_timeout", deserialize_with = "parse_duration_option")]
     pub connect_timeout: Option<Duration>,
@@ -33,17 +33,19 @@ pub struct CacheConfig {
 
 #[derive(Clone, Deserialize, Debug, Default)]
 pub struct Serve {
-    #[serde(default="default_host")]
+    // #[serde(default="default_host")]
     pub host: String,
-    #[serde(default="default_port")]
+    // #[serde(default="default_port")]
     pub port: u16,
-    #[serde(default="default_https")]
+    // #[serde(default="default_https")]
     pub https: bool,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, /*Default,*/ Deserialize)] // https://github.com/serde-rs/serde/issues/3002
 pub struct Config {
+    #[serde(default="default_proxy_serve")]
     pub bind_proxy: Serve,
+    #[serde(default="default_api_serve")]
     pub bind_api: Serve,
     pub our_secret: Option<String>, // simple Bearer authentication
     pub require_x_principal: bool,
@@ -85,16 +87,20 @@ pub struct Args {
     pub total_timeout: Option<Duration>,
 }
 
-fn default_host() -> String {
-    "localhost".to_string()
+fn default_proxy_serve() -> Serve {
+    Serve {
+        host: "localhost".to_string(),
+        port: 8080,
+        https: false,
+    }
 }
 
-fn default_port() -> u16 {
-    8080
-}
-
-fn default_https() -> bool {
-    false
+fn default_api_serve() -> Serve {
+    Serve {
+        host: "localhost".to_string(),
+        port: 8084,
+        https: false,
+    }
 }
 
 fn default_upstream_connect_timeout() -> Option<Duration> {
