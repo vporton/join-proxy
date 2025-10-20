@@ -1,0 +1,8 @@
+import type { Identity } from "@dfinity/agent";
+
+const DEFAULT_CLIENT_ID = "LocalClient";
+const DEFAULT_SCOPE = "default offline_access";
+
+function detect(annotation) {
+  console.log(annotation);
+}
