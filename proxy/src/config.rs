@@ -159,3 +159,26 @@ where
             Err(D::Error::custom(format!("Invalid principal: {}", principal_error))),
     }
 }
+
+impl Config {
+    pub fn update_from_args(&mut self, cli: Args) {
+        if let Some(proxy_host) = cli.bind_proxy_host {
+            self.bind_proxy.host = proxy_host;
+        }
+        if let Some(proxy_port) = cli.bind_proxy_port {
+            self.bind_proxy.port = proxy_port;
+        }
+        if let Some(proxy_https) = cli.bind_proxy_https {
+            self.bind_proxy.https = proxy_https;
+        }
+        if let Some(api_host) = cli.bind_api_host {
+            self.bind_api.host = api_host;
+        }
+        if let Some(api_port) = cli.bind_api_port {
+            self.bind_api.port = api_port;
+        }
+        if let Some(api_https) = cli.bind_api_https {
+            self.bind_api.https = api_https;
+        }
+    }
+}

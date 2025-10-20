@@ -394,9 +394,7 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow!("Cannot read config file {}: {}", cli.config_file, e))?;
     let mut config: Config = toml::from_str(&config_string)
         .map_err(|e| anyhow!("Cannot read config file {}: {}", cli.config_file, e))?;
-    if let Some(proxy_host) = cli.bind_proxy_host {
-        config.bind_proxy.host = proxy_host;
-    }
+    config.update_from_args(cli);
     // TODO
     if let Some(callback) = &mut config.callback {
         if callback.ic_url.is_none() && callback.ic_local {
