@@ -1,23 +1,17 @@
 // mod support;
 
 use actix::{Actor, Addr, Context, Handler};
-use actix_web::{
-    middleware::{Logger, NormalizePath, TrailingSlash},
-    rt,
-    web::{self, Data},
-    App, HttpRequest, HttpServer,
-};
+use actix_web::{web, HttpRequest};
 use oxide_auth::{
-    endpoint::{
-        ClientCredentialsFlow, Endpoint, OwnerConsent, OwnerSolicitor, QueryParameter, Solicitation,
-    },
+    endpoint::{Endpoint, OwnerConsent, OwnerSolicitor, QueryParameter, Solicitation},
     frontends::simple::endpoint::{ErrorInto, FnSolicitor, Generic, Vacant},
     primitives::prelude::{AuthMap, Client, ClientMap, RandomGenerator, Scope, TokenMap},
 };
 use oxide_auth_actix::{
-    Authorize, ClientCredentials, OAuthMessage, OAuthOperation, OAuthRequest, OAuthResource, OAuthResponse, Refresh, Resource, Token, WebError
+    Authorize, ClientCredentials, OAuthMessage, OAuthOperation, OAuthRequest, OAuthResponse, Refresh, Token, WebError
 };
-use std::thread;
+
+// Based on https://github.com/197g/oxide-auth/blob/master/oxide-auth-actix/examples/actix-example/src/main.rs
 
 static DENY_TEXT: &str = "<html>
 This page should be accessed via an oauth token from the client in the example. Click
