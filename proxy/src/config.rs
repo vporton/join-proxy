@@ -1,8 +1,8 @@
 use clap::{command, Parser};
 use ic_agent::export::Principal;
+use serde::de::Error;
 use serde::Deserializer;
 use serde_derive::Deserialize;
-use serde::de::Error;
 use std::time::Duration;
 
 #[derive(Clone, Deserialize, Debug)]
@@ -10,18 +10,27 @@ pub struct Callback {
     #[serde(deserialize_with = "deserialize_canister_id")]
     pub canister: Principal,
     pub func: String,
-    #[serde(default="default_ic_local")]
+    #[serde(default = "default_ic_local")]
     pub ic_local: bool,
     pub ic_url: Option<String>,
 }
 
-#[derive(Clone, Deserialize, Debug/*, Default*/)] // https://github.com/serde-rs/serde/issues/3002
+#[derive(Clone, Deserialize, Debug /*, Default*/)] // https://github.com/serde-rs/serde/issues/3002
 pub struct UpstreamTimeouts {
-    #[serde(default="default_upstream_connect_timeout", deserialize_with = "parse_duration_option")]
+    #[serde(
+        default = "default_upstream_connect_timeout",
+        deserialize_with = "parse_duration_option"
+    )]
     pub connect_timeout: Option<Duration>,
-    #[serde(default="default_upstream_read_timeout", deserialize_with = "parse_duration_option")]
+    #[serde(
+        default = "default_upstream_read_timeout",
+        deserialize_with = "parse_duration_option"
+    )]
     pub read_timeout: Option<Duration>,
-    #[serde(default="default_upstream_total_timeout", deserialize_with = "parse_duration_option")]
+    #[serde(
+        default = "default_upstream_total_timeout",
+        deserialize_with = "parse_duration_option"
+    )]
     pub total_timeout: Option<Duration>,
 }
 
@@ -35,15 +44,16 @@ pub struct CacheConfig {
 pub struct Serve {
     pub host: String,
     pub port: u16,
-    #[serde(default="default_https")]
+    #[serde(default = "default_https")]
     pub https: bool,
 }
 
 #[derive(Clone, Debug, /*Default,*/ Deserialize)] // https://github.com/serde-rs/serde/issues/3002
 pub struct Config {
-    #[serde(default="default_proxy_serve")]
+    pub db: String, // TODO@P3: Make it optional.
+    #[serde(default = "default_proxy_serve")]
     pub bind_proxy: Serve,
-    #[serde(default="default_api_serve")]
+    #[serde(default = "default_api_serve")]
     pub bind_api: Serve,
     pub our_secret: Option<String>, // simple Bearer authentication
     pub require_x_principal: bool,
@@ -57,23 +67,28 @@ pub struct Config {
 #[derive(Parser)]
 #[command(version, name = "join-proxy", about = "A deduplication proxy for ICP")]
 pub struct Args {
-    #[arg(short, long="config", help="Config file")]
+    #[arg(short, long = "config", help = "Config file")]
     pub config_file: Option<String>,
-    #[arg(long="proxy.host", help="Bind proxy to host")]
+    #[arg(short, long = "db", help = "DB URL")]
+    pub db: Option<String>,
+    #[arg(long = "proxy.host", help = "Bind proxy to host")]
     pub bind_proxy_host: Option<String>,
-    #[arg(long="proxy.port", help="Bind proxy to port")]
+    #[arg(long = "proxy.port", help = "Bind proxy to port")]
     pub bind_proxy_port: Option<u16>,
-    #[arg(long="proxy.https", help="Bind proxy to SSL")]
+    #[arg(long = "proxy.https", help = "Bind proxy to SSL")]
     pub bind_proxy_https: Option<bool>,
-    #[arg(long="api.host", help="Bind API endpoint to host")]
+    #[arg(long = "api.host", help = "Bind API endpoint to host")]
     pub bind_api_host: Option<String>,
-    #[arg(long="api.port", help="Bind API endpoint to port")]
+    #[arg(long = "api.port", help = "Bind API endpoint to port")]
     pub bind_api_port: Option<u16>,
-    #[arg(long="api.https", help="Bind API endpoint to SSL")]
+    #[arg(long = "api.https", help = "Bind API endpoint to SSL")]
     pub bind_api_https: Option<bool>,
-    #[arg(long="our-secret", help="Secret to check by proxy (not secure by alone)")]
+    #[arg(
+        long = "our-secret",
+        help = "Secret to check by proxy (not secure by alone)"
+    )]
     pub our_secret: Option<String>, // simple Bearer authentication
-    #[arg(long="require-x-principal", help="Require `X-Principal:` header")]
+    #[arg(long = "require-x-principal", help = "Require `X-Principal:` header")]
     pub require_x_principal: Option<bool>,
     #[arg(long="timeout.cache", value_parser = extract_duration_simple, help="Cache timeout")]
     pub cache_timeout: Option<Duration>,
@@ -121,16 +136,17 @@ fn default_ic_local() -> bool {
     false
 }
 
-fn extract_duration_simple(s: &str) -> Result<Duration, String> { // TODO@P3: Can use `&str` instead?
+fn extract_duration_simple(s: &str) -> Result<Duration, String> {
+    // TODO@P3: Can use `&str` instead?
     let pos = s.find(|c: char| !c.is_numeric()).unwrap_or(s.len());
     let (value_str, unit) = s.split_at(pos);
 
     let value: u64 = value_str.parse().map_err(|_| "Can't extract number")?;
 
     match unit {
-        "d" => Ok(Duration::from_secs(value*3600*24)),
-        "h" => Ok(Duration::from_secs(value*3600)),
-        "m" => Ok(Duration::from_secs(value*60)),
+        "d" => Ok(Duration::from_secs(value * 3600 * 24)),
+        "h" => Ok(Duration::from_secs(value * 3600)),
+        "m" => Ok(Duration::from_secs(value * 60)),
         "s" => Ok(Duration::from_secs(value)),
         "ms" => Ok(Duration::from_millis(value)),
         _ => Err("Invalid duration unit".to_string()),
@@ -171,13 +187,18 @@ where
     let input: String = serde::Deserialize::deserialize(deserializer)?;
     match Principal::from_text(input) {
         Ok(principal) => Ok(principal),
-        Err(principal_error) =>
-            Err(D::Error::custom(format!("Invalid principal: {}", principal_error))),
+        Err(principal_error) => Err(D::Error::custom(format!(
+            "Invalid principal: {}",
+            principal_error
+        ))),
     }
 }
 
 impl Config {
     pub fn update_from_args(&mut self, cli: Args) {
+        if let Some(db) = cli.db {
+            self.db = db;
+        }
         if let Some(proxy_host) = cli.bind_proxy_host {
             self.bind_proxy.host = proxy_host;
         }

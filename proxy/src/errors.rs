@@ -1,9 +1,12 @@
-use actix_web::{http::{header::ContentType, StatusCode}, HttpResponse, ResponseError};
+use actix_web::{
+    http::{header::ContentType, StatusCode},
+    HttpResponse, ResponseError,
+};
+use derive_more::From;
 use http_for_actix::status::InvalidStatusCode;
 use ic_agent::AgentError;
-use thiserror::Error;
 use std::fmt::{Debug, Display, Formatter};
-use derive_more::From;
+use thiserror::Error;
 
 #[derive(Debug, Error, From)]
 pub enum MyError {

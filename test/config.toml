@@ -1,6 +1,8 @@
 # Simple Bearer authentication. On IC platform you should use callback authentication instead.
 #our_secret = "<KEY>"
 
+db = "postgres://test:123@localhost/proxy"
+
 require_x_principal = false
 
 [bind_proxy]

@@ -1,14 +1,30 @@
+// mod support;
+
 use actix::{Actor, Addr, Context, Handler};
-use actix_web::{web, HttpRequest};
+use actix_web::{
+    middleware::{Logger, NormalizePath, TrailingSlash},
+    rt,
+    web::{self, Data},
+    App, HttpRequest, HttpServer,
+};
 use oxide_auth::{
-    /*code_grant::client_credentials::ClientCredentials,*/ endpoint::{Endpoint, OwnerConsent, OwnerSolicitor, QueryParameter, Solicitation}, frontends::simple::endpoint::{ErrorInto, FnSolicitor, Generic, Vacant}, primitives::prelude::{AuthMap, Client, ClientMap, RandomGenerator, Scope, TokenMap}
+    endpoint::{
+        ClientCredentialsFlow, Endpoint, OwnerConsent, OwnerSolicitor, QueryParameter, Solicitation,
+    },
+    frontends::simple::endpoint::{ErrorInto, FnSolicitor, Generic, Vacant},
+    primitives::prelude::{AuthMap, Client, ClientMap, RandomGenerator, Scope, TokenMap},
 };
 use oxide_auth_actix::{
-    Authorize, OAuthMessage, OAuthOperation, OAuthRequest, OAuthResponse, Refresh, Token, WebError
+    Authorize, ClientCredentials, OAuthMessage, OAuthOperation, OAuthRequest, OAuthResource, OAuthResponse, Refresh, Resource, Token, WebError
 };
-use oxide_auth_actix::ClientCredentials;
+use std::thread;
 
-// Follows https://github.com/197g/oxide-auth/blob/master/oxide-auth-actix/examples/actix-example/src/main.rs
+static DENY_TEXT: &str = "<html>
+This page should be accessed via an oauth token from the client in the example. Click
+<a href=\"http://localhost:8020/authorize?response_type=code&client_id=LocalClient\">
+here</a> to begin the authorization process.
+</html>
+";
 
 pub struct State {
     endpoint: Generic<
@@ -21,7 +37,6 @@ pub struct State {
     >,
 }
 
-// TODO: What is it?
 enum Extras {
     AuthGet,
     AuthPost(String),
@@ -29,17 +44,45 @@ enum Extras {
     Nothing,
 }
 
-/// Handles OAuth2 /authorize requests
+// struct ClientCredentialsBodyAllowed(pub OAuthRequest);
+
+// impl OAuthOperation for ClientCredentialsBodyAllowed {
+//     type Item = OAuthResponse;
+//     type Error = WebError;
+
+//     fn run<E>(self, endpoint: E) -> Result<Self::Item, Self::Error>
+//     where
+//         E: Endpoint<OAuthRequest>,
+//         WebError: From<E::Error>,
+//     {
+//         let mut flow = ClientCredentialsFlow::prepare(endpoint)?;
+//         flow.allow_credentials_in_body(true);
+//         flow.execute(self.0).map_err(WebError::from)
+//     }
+// }
+
+// async fn get_authorize(
+//     (req, state): (OAuthRequest, web::Data<Addr<State>>),
+// ) -> Result<OAuthResponse, WebError> {
+//     // GET requests should not mutate server state and are extremely
+//     // vulnerable accidental repetition as well as Cross-Site Request
+//     // Forgery (CSRF).
+//     state.send(Authorize(req).wrap(Extras::AuthGet)).await?
+// }
+
 pub async fn authorize(
     (r, req, state): (HttpRequest, OAuthRequest, web::Data<Addr<State>>),
 ) -> Result<OAuthResponse, WebError> {
-    // FIXME: Some authentication should be performed here in production cases
+    // Some authentication should be performed here in production cases
     state
         .send(Authorize(req).wrap(Extras::AuthPost(r.query_string().to_owned())))
         .await?
 }
 
-pub async fn token((req, state): (OAuthRequest, web::Data<Addr<State>>)) -> Result<OAuthResponse, WebError> {
+// `curl http://localhost:8080/auth/token -H "Content-Type: application/x-www-form-urlencoded" -d 'grant_type=client_credentials' -u 'LocalClient:SecretSecret'`
+pub async fn token(
+    (req, state): (OAuthRequest, web::Data<Addr<State>>),
+) -> Result<OAuthResponse, WebError> {
     let grant_type = req.body().and_then(|body| body.unique_value("grant_type"));
     // Different grant types determine which flow to perform.
     match grant_type.as_deref() {
@@ -60,34 +103,88 @@ pub async fn refresh(
     state.send(Refresh(req).wrap(Extras::Nothing)).await?
 }
 
+async fn index(
+    (req, state): (OAuthResource, web::Data<Addr<State>>),
+) -> Result<OAuthResponse, WebError> {
+    match state
+        .send(Resource(req.into_request()).wrap(Extras::Nothing))
+        .await?
+    {
+        Ok(_grant) => Ok(OAuthResponse::ok()
+            .content_type("text/plain")?
+            .body("Hello world!")),
+        Err(Ok(e)) => Ok(e.body(DENY_TEXT)),
+        Err(Err(e)) => Err(e),
+    }
+}
+
+// async fn start_browser() -> () {
+//     let _ = thread::spawn(|| support::open_in_browser(8020));
+// }
+
+// Example of a main function of an actix-web server supporting oauth.
+// #[actix_web::main]
+// pub async fn main() -> std::io::Result<()> {
+//     std::env::set_var(
+//         "RUST_LOG",
+//         "actix_example=info,actix_web=info,actix_http=info,actix_service=info",
+//     );
+//     env_logger::init();
+
+//     // Start, then open in browser, don't care about this finishing.
+//     rt::spawn(start_browser());
+
+//     let state = State::preconfigured().start();
+
+//     // Create the main server instance
+//     let server = HttpServer::new(move || {
+//         App::new()
+//             .app_data(Data::new(state.clone()))
+//             .wrap(NormalizePath::new(TrailingSlash::Trim))
+//             .wrap(Logger::default())
+//             .service(
+//                 web::resource("/authorize")
+//                     .route(web::get().to(get_authorize))
+//                     .route(web::post().to(post_authorize)),
+//             )
+//             .route("/token", web::post().to(token))
+//             .route("/refresh", web::post().to(refresh))
+//             .route("/", web::get().to(index))
+//     })
+//     .bind("localhost:8020")
+//     .expect("Failed to bind to socket")
+//     .run();
+
+//     let client = support::dummy_client();
+
+//     futures::try_join!(server, client).map(|_| ())
+// }
+
 impl State {
     pub fn preconfigured() -> Self {
-        let api_server_url = "https://localhost:3000"; // FIXME: totally wrong URL
-        // let api_server_url = config.bind_api.host.clone() + ":" + config.bind_api.port.to_string().as_str(); // TODO: duplicate code
-
         State {
             endpoint: Generic {
                 // A registrar with one pre-registered client
-                registrar: vec![Client::confidential( // FIXME: a dynamic DB client instead of this clear-text password one
-                    "JoinProxyApi",
-                    format!("{}/redirect", api_server_url)
+                registrar: vec![Client::confidential(
+                    "LocalClient",
+                    "http://localhost:8021/endpoint"
                         .parse::<url::Url>()
                         .unwrap()
                         .into(),
-                    "default".parse().unwrap(),
+                    "default-scope".parse().unwrap(),
                     "SecretSecret".as_bytes(),
                 )]
                 .into_iter()
                 .collect(),
                 // Authorization tokens are 16 byte random keys to a memory hash map.
-                authorizer: AuthMap::new(RandomGenerator::new(32)),
+                authorizer: AuthMap::new(RandomGenerator::new(16)),
                 // Bearer tokens are also random generated but 256-bit tokens, since they live longer
                 // and this example is somewhat paranoid.
                 //
                 // We could also use a `TokenSigner::ephemeral` here to create signed tokens which can
                 // be read and parsed by anyone, but not maliciously created. However, they can not be
                 // revoked and thus don't offer even longer lived refresh tokens.
-                issuer: TokenMap::new(RandomGenerator::new(32)),
+                issuer: TokenMap::new(RandomGenerator::new(16)),
 
                 solicitor: Vacant,
 
@@ -100,7 +197,8 @@ impl State {
     }
 
     pub fn with_solicitor<'a, S>(
-        &'a mut self, solicitor: S,
+        &'a mut self,
+        solicitor: S,
     ) -> impl Endpoint<OAuthRequest, Error = WebError> + 'a
     where
         S: OwnerSolicitor<OAuthRequest> + 'static,
@@ -131,16 +229,17 @@ where
 
         match ex {
             Extras::AuthGet => {
-                let solicitor = FnSolicitor(move |_: &mut OAuthRequest, pre_grant: Solicitation| {
-                    // This will display a page to the user asking for his permission to proceed. The submitted form
-                    // will then trigger the other authorization handler which actually completes the flow.
-                    OwnerConsent::InProgress(
-                        OAuthResponse::ok()
-                            .content_type("text/html")
-                            .unwrap()
-                            .body(&consent_page_html("/authorize".into(), pre_grant)),
-                    )
-                });
+                let solicitor =
+                    FnSolicitor(move |_: &mut OAuthRequest, pre_grant: Solicitation| {
+                        // This will display a page to the user asking for his permission to proceed. The submitted form
+                        // will then trigger the other authorization handler which actually completes the flow.
+                        OwnerConsent::InProgress(
+                            OAuthResponse::ok()
+                                .content_type("text/html")
+                                .unwrap()
+                                .body(&consent_page_html("/authorize".into(), pre_grant)),
+                        )
+                    });
 
                 op.run(self.with_solicitor(solicitor))
             }
@@ -156,14 +255,15 @@ where
                 op.run(self.with_solicitor(solicitor))
             }
             Extras::ClientCredentials => {
-                let solicitor = FnSolicitor(move |_: &mut OAuthRequest, solicitation: Solicitation| {
-                    // For the client credentials flow, the solicitor is consulted
-                    // to ensure that the resulting access token is issued to the
-                    // correct owner. This may be the client itself, if clients
-                    // and resource owners are from the same set of entities, but
-                    // may be distinct if that is not the case.
-                    OwnerConsent::Authorized(solicitation.pre_grant().client_id.clone())
-                });
+                let solicitor =
+                    FnSolicitor(move |_: &mut OAuthRequest, solicitation: Solicitation| {
+                        // For the client credentials flow, the solicitor is consulted
+                        // to ensure that the resulting access token is issued to the
+                        // correct owner. This may be the client itself, if clients
+                        // and resource owners are from the same set of entities, but
+                        // may be distinct if that is not the case.
+                        OwnerConsent::Authorized(solicitation.pre_grant().client_id.clone())
+                    });
 
                 op.run(self.with_solicitor(solicitor))
             }
@@ -175,7 +275,7 @@ where
 pub fn consent_page_html(route: &str, solicitation: Solicitation) -> String {
     macro_rules! template {
         () => {
-"<html>'{0:}' (at {1:}) is requesting permission for '{2:}'
+            "<html>'{0:}' (at {1:}) is requesting permission for '{2:}'
 <form method=\"post\">
     <input type=\"submit\" value=\"Accept\" formaction=\"{4:}?{3:}&allow=true\">
     <input type=\"submit\" value=\"Deny\" formaction=\"{4:}?{3:}&deny=true\">
@@ -196,8 +296,9 @@ pub fn consent_page_html(route: &str, solicitation: Solicitation) -> String {
     if let Some(state) = state {
         extra.push(("state", state));
     }
-    
-    format!(template!(), 
+
+    format!(
+        template!(),
         grant.client_id,
         grant.redirect_uri,
         grant.scope,

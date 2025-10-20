@@ -1,7 +1,7 @@
+use super::lockable_map::{AbstractLockableMap, LockableHashMap, MutexGuard};
+use std::collections::BTreeMap;
 use std::hash::Hash;
 use std::time::{Duration, SystemTime};
-use std::collections::BTreeMap;
-use super::lockable_map::{AbstractLockableMap, LockableHashMap, MutexGuard};
 
 use async_trait::async_trait;
 use tokio::sync::Mutex;
@@ -32,7 +32,8 @@ where
     V: std::marker::Send,
 {
     async fn lock<'a>(&'a mut self, key: &K) -> MyResult<Box<dyn MutexGuard<Option<V>> + 'a>>
-        where V: 'a
+    where
+        V: 'a,
     {
         // Remove expired entries.
         let time_threshold = SystemTime::now() - self.keep_duration;
