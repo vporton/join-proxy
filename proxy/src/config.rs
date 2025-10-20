@@ -57,28 +57,32 @@ pub struct Config {
 #[derive(Parser)]
 #[command(version, name = "join-proxy", about = "A deduplication proxy for ICP")]
 pub struct Args {
-    #[arg(short, long="config", default_value="config.toml")]
+    #[arg(short, long="config", default_value="config.toml", help="Config file")]
     pub config_file: String,
-    #[arg(long="proxy.host")]
+    #[arg(long="proxy.host", help="Bind proxy to host")]
     pub bind_proxy_host: Option<String>,
-    #[arg(long="proxy.port")]
+    #[arg(long="proxy.port", help="Bind proxy to port")]
     pub bind_proxy_port: Option<u16>,
-    #[arg(long="proxy.https")]
+    #[arg(long="proxy.https", help="Bind proxy to SSL")]
     pub bind_proxy_https: Option<bool>,
-    #[arg(long="api.host")]
+    #[arg(long="api.host", help="Bind API endpoint to host")]
     pub bind_api_host: Option<String>,
-    #[arg(long="api.port")]
+    #[arg(long="api.port", help="Bind API endpoint to port")]
     pub bind_api_port: Option<u16>,
-    #[arg(long="api.https")]
+    #[arg(long="api.https", help="Bind API endpoint to SSL")]
     pub bind_api_https: Option<bool>,
+    #[arg(long="our-secret", help="Secret to check by proxy (not secure by alone)")]
     pub our_secret: Option<String>, // simple Bearer authentication
+    #[arg(long="require-x-principal", help="Require `X-Principal:` header")]
     pub require_x_principal: Option<bool>,
-    #[arg(long="cache.timeout", value_parser = extract_duration_simple)]
+    #[arg(long="timeout.cache", value_parser = extract_duration_simple, help="Cache timeout")]
     pub cache_timeout: Option<Duration>,
-    #[clap(skip)]
-    pub upstream_timeouts: UpstreamTimeouts,
-    #[clap(skip)]
-    pub callback: Option<Callback>,
+    #[arg(long="timeout.connect", value_parser = extract_duration_simple, help="Connect to upstream timeout")]
+    pub connect_timeout: Option<Duration>,
+    #[arg(long="timeout.read", value_parser = extract_duration_simple, help="Read from upstream timeout")]
+    pub read_timeout: Option<Duration>,
+    #[arg(long="timeout.total", value_parser = extract_duration_simple, help="Total upstream timeout")]
+    pub total_timeout: Option<Duration>,
 }
 
 fn default_host() -> String {
@@ -192,6 +196,15 @@ impl Config {
         }
         if let Some(cache_timeout) = cli.cache_timeout {
             self.cache.cache_timeout = cache_timeout;
+        }
+        if let Some(connect_timeout) = cli.connect_timeout {
+            self.upstream_timeouts.connect_timeout = Some(connect_timeout);
+        }
+        if let Some(read_timeout) = cli.read_timeout {
+            self.upstream_timeouts.read_timeout = Some(read_timeout);
+        }
+        if let Some(total_timeout) = cli.total_timeout {
+            self.upstream_timeouts.total_timeout = Some(total_timeout);
         }
     }
 }
