@@ -365,7 +365,11 @@ fn verify_signature(
         vk.verify_signature(message, signature)
             .map_err(|_| IiAuthError::InvalidSignature)
     } else {
-        Err(IiAuthError::UnsupportedKeyAlgorithm)
+        match fallback_ecc_verification(spki.subject_public_key.raw_bytes(), signature, message) {
+            Ok(()) => Ok(()),
+            Err(IiAuthError::InvalidPublicKey) => Err(IiAuthError::UnsupportedKeyAlgorithm),
+            Err(other) => Err(other),
+        }
     }
 }
 
