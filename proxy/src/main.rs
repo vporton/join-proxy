@@ -10,7 +10,6 @@ use std::{collections::{btree_map::Entry, BTreeMap}, fs::{read_to_string, File},
 use actix::Actor;
 use diesel::{Connection, ExpressionMethods, PgConnection, QueryDsl, RunQueryDsl};
 use log::info;
-use merge::Merge;
 use rustls::{crypto::ring, ServerConfig};
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use actix_web::{http::StatusCode, web::{self, Data}, App, HttpResponse, HttpServer};
@@ -390,7 +389,7 @@ async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let cli = Args::parse();
-    let mut config: Config = if let Some(config_file) = cli.config_file {
+    let mut config: Config = if let Some(config_file) = &cli.config_file {
         let config_string = read_to_string(&config_file)
             .map_err(|e| anyhow!("Cannot read config file {}: {}", config_file, e))?;
         toml::from_str(&config_string)
