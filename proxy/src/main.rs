@@ -389,15 +389,11 @@ async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let cli = Args::parse();
-    let mut config: Config = if let Some(config_file) = &cli.config_file {
-        let config_string = read_to_string(&config_file)
-            .map_err(|e| anyhow!("Cannot read config file {}: {}", config_file, e))?;
-        toml::from_str(&config_string)
-            .map_err(|e| anyhow!("Cannot parse config file {}: {}", config_file, e))?
-    } else {
-        // Config::default() // https://github.com/serde-rs/serde/issues/3002
-        toml::from_str("").unwrap()
-    };
+    let config_file = cli.config_file.as_ref().map(|s| s.as_str()).unwrap_or("config.toml");
+    let config_string = read_to_string(&config_file)
+        .map_err(|e| anyhow!("Cannot read config file {}: {}", config_file, e))?;
+    let mut config: Config = toml::from_str(&config_string)
+        .map_err(|e| anyhow!("Cannot parse config file {}: {}", config_file, e))?;
     config.update_from_args(cli);
     // TODO
     if let Some(callback) = &mut config.callback {
@@ -481,6 +477,7 @@ async fn main() -> anyhow::Result<()> {
             bail!("No SSL certificate or key in config");
         }
     } else {
+        info!("Proxy server at {proxy_server_url}...");
         proxy_server.bind(proxy_server_url)
     }?
         .run();
@@ -526,6 +523,7 @@ async fn main() -> anyhow::Result<()> {
             bail!("No SSL certificate or key in config");
         }
     } else {
+        info!("API at {api_server_url}...");
         api_server.bind(api_server_url)
     }?
         .run();

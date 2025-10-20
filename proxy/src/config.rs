@@ -25,7 +25,7 @@ pub struct UpstreamTimeouts {
     pub total_timeout: Option<Duration>,
 }
 
-#[derive(Clone, Deserialize, Debug, Default)]
+#[derive(Clone, Deserialize, Debug)]
 pub struct CacheConfig {
     #[serde(deserialize_with = "parse_duration")]
     pub cache_timeout: Duration,
@@ -35,6 +35,7 @@ pub struct CacheConfig {
 pub struct Serve {
     pub host: String,
     pub port: u16,
+    #[serde(default="default_https")]
     pub https: bool,
 }
 
@@ -98,6 +99,10 @@ fn default_api_serve() -> Serve {
         port: 8084,
         https: false,
     }
+}
+
+fn default_https() -> bool {
+    false
 }
 
 fn default_upstream_connect_timeout() -> Option<Duration> {
