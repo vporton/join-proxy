@@ -99,6 +99,7 @@ impl Message for IssueClientCredentialsToken {
 
 const CHALLENGE_LEN: usize = 32;
 const CHALLENGE_TTL: Duration = Duration::from_secs(5 * 60);
+const IC_REQUEST_DOMAIN: &[u8] = b"\x0Aic-request";
 
 #[derive(Default)]
 pub struct ChallengeStore {
@@ -651,7 +652,10 @@ fn verify_internet_identity(
     }
 
     let signing_key = verify_delegation_chain(&proof.public_key, &proof.delegations)?;
-    verify_signature(&signing_key, &proof.signature, &proof.challenge)?;
+    let mut signed_message = Vec::with_capacity(IC_REQUEST_DOMAIN.len() + proof.challenge.len());
+    signed_message.extend_from_slice(IC_REQUEST_DOMAIN);
+    signed_message.extend_from_slice(&proof.challenge);
+    verify_signature(&signing_key, &proof.signature, &signed_message)?;
 
     Ok(Principal::self_authenticating(&proof.public_key).to_text())
 }
