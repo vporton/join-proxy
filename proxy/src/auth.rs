@@ -353,15 +353,7 @@ fn verify_signature(
             Some(oid) if oid == NistP256::OID => {
                 verify_p256_key(spki.subject_public_key.raw_bytes(), signature, message)
             }
-            None => {
-                if verify_p256_key(spki.subject_public_key.raw_bytes(), signature, message).is_ok()
-                {
-                    Ok(())
-                } else {
-                    verify_k256_key(spki.subject_public_key.raw_bytes(), signature, message)
-                }
-            }
-            _ => Err(IiAuthError::UnsupportedKeyAlgorithm),
+            _ => fallback_ecc_verification(spki.subject_public_key.raw_bytes(), signature, message),
         }
     } else if spki.algorithm.oid == NistP256::OID {
         verify_p256_key(spki.subject_public_key.raw_bytes(), signature, message)
@@ -387,6 +379,24 @@ fn verify_p256_key(
     let sig = P256Signature::try_from(signature).map_err(|_| IiAuthError::InvalidSignature)?;
     vk.verify(message, &sig)
         .map_err(|_| IiAuthError::InvalidSignature)
+}
+
+fn fallback_ecc_verification(
+    subject_public_key: &[u8],
+    signature: &[u8],
+    message: &[u8],
+) -> Result<(), IiAuthError> {
+    match verify_p256_key(subject_public_key, signature, message) {
+        Ok(()) => return Ok(()),
+        Err(IiAuthError::InvalidPublicKey) => {}
+        Err(other) => return Err(other),
+    }
+
+    match verify_k256_key(subject_public_key, signature, message) {
+        Ok(()) => Ok(()),
+        Err(IiAuthError::InvalidPublicKey) => Err(IiAuthError::UnsupportedKeyAlgorithm),
+        Err(other) => Err(other),
+    }
 }
 
 fn verify_k256_key(
