@@ -40,6 +40,7 @@ use sha2::{Digest as ShaDigest, Sha256};
 use std::{
     collections::HashMap,
     convert::TryFrom,
+    iter,
     sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -470,6 +471,26 @@ fn normalize_sec1_bytes(bytes: &[u8]) -> Cow<'_, [u8]> {
             let mut owned = Vec::with_capacity(65);
             owned.push(0x04);
             owned.extend_from_slice(bytes);
+            warn!("Assuming uncompressed SEC1 point with missing prefix (64 bytes -> 65 bytes)");
+            Cow::Owned(owned)
+        }
+        prefix if bytes.len() > 1 && (bytes.len() - 1) % 2 == 0 => {
+            let coord_len = (bytes.len() - 1) / 2;
+            if coord_len == 0 || coord_len > 32 {
+                return Cow::Borrowed(bytes);
+            }
+            warn!(
+                "Attempting to reconstruct SEC1 point from compact vendor encoding (prefix 0x{:02x}, coord_len {})",
+                prefix,
+                coord_len
+            );
+            let mut owned = Vec::with_capacity(65);
+            owned.push(0x04);
+            let (x, y) = bytes[1..].split_at(coord_len);
+            owned.extend(iter::repeat(0u8).take(32 - coord_len));
+            owned.extend_from_slice(x);
+            owned.extend(iter::repeat(0u8).take(32 - coord_len));
+            owned.extend_from_slice(y);
             Cow::Owned(owned)
         }
         _ => Cow::Borrowed(bytes),
