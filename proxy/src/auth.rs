@@ -8,7 +8,6 @@ use elliptic_curve::ALGORITHM_OID;
 use ic_agent::export::Principal;
 use ic_agent::identity::{Delegation, SignedDelegation};
 use ic_ed25519::PublicKey as Ed25519PublicKey;
-use k256::ecdsa::signature::Verifier;
 use k256::{
     ecdsa::{Signature as K256Signature, VerifyingKey as K256VerifyingKey},
     Secp256k1,
@@ -36,7 +35,7 @@ use rand::RngCore;
 use sec1::EcParameters;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::{Digest as ShaDigest, Sha256};
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     convert::TryFrom,
@@ -308,28 +307,23 @@ fn verify_delegation_chain(
     delegations: &[SignedDelegation],
 ) -> Result<Vec<u8>, IiAuthError> {
     if delegations.is_empty() {
-        return Err(IiAuthError::MissingSigningKey);
+        return Ok(root_public_key.to_vec());
     }
 
-    let mut current_key = root_public_key.to_vec();
-    let mut signing_key: Option<Vec<u8>> = None;
+    let mut issuer_key = root_public_key;
 
     for signed in delegations {
         ensure_not_expired(signed.delegation.expiration)?;
 
         let message = signed.delegation.signable();
-        verify_signature(&current_key, &signed.signature, &message)?;
-
-        if signed.delegation.targets.is_none() {
-            signing_key = Some(signed.delegation.pubkey.clone());
-        } else {
-            break;
-        }
-
-        current_key = signed.delegation.pubkey.clone();
+        verify_signature(issuer_key, &signed.signature, &message)?;
+        issuer_key = &signed.delegation.pubkey;
     }
 
-    signing_key.ok_or(IiAuthError::MissingSigningKey)
+    delegations
+        .last()
+        .map(|signed| signed.delegation.pubkey.clone())
+        .ok_or(IiAuthError::MissingSigningKey)
 }
 
 fn verify_signature(
@@ -340,48 +334,70 @@ fn verify_signature(
     let spki = SubjectPublicKeyInfoRef::from_der(public_key_der)
         .map_err(|_| IiAuthError::InvalidPublicKey)?;
 
-    if spki.algorithm.oid == ALGORITHM_OID {
-        let curve = spki
-            .algorithm
-            .parameters
-            .and_then(|params| params.decode_as::<EcParameters>().ok())
-            .and_then(|params| params.named_curve());
+    let algorithm = determine_signature_algorithm(&spki)?;
+    let key_bytes = spki.subject_public_key.raw_bytes();
 
-        match curve {
-            Some(oid) if oid == Secp256k1::OID => {
-                verify_k256_key(spki.subject_public_key.raw_bytes(), signature, message)
-            }
-            Some(oid) if oid == NistP256::OID => {
-                verify_p256_key(spki.subject_public_key.raw_bytes(), signature, message)
-            }
-            _ => fallback_ecc_verification(spki.subject_public_key.raw_bytes(), signature, message),
+    match algorithm {
+        SignatureAlgorithm::Ed25519 => {
+            let vk = Ed25519PublicKey::deserialize_raw(key_bytes)
+                .map_err(|_| IiAuthError::InvalidPublicKey)?;
+            vk.verify_signature(message, signature)
+                .map_err(|_| IiAuthError::InvalidSignature)
         }
-    } else if spki.algorithm.oid == NistP256::OID
-        || spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.6.1.4.1.56387.1.1")
-        || spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.6.1.4.1.56387.1.2")
-    {
-        verify_p256_key(spki.subject_public_key.raw_bytes(), signature, message)
-    } else if spki.algorithm.oid == Secp256k1::OID {
-        verify_k256_key(spki.subject_public_key.raw_bytes(), signature, message)
-    } else if spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.101.112") {
-        let vk = Ed25519PublicKey::deserialize_raw(spki.subject_public_key.raw_bytes())
-            .map_err(|_| IiAuthError::InvalidPublicKey)?;
-        vk.verify_signature(message, signature)
-            .map_err(|_| IiAuthError::InvalidSignature)
-    } else {
-        warn!(
-            "Unsupported SPKI algorithm OID {} – attempting fallback verification",
-            spki.algorithm.oid
-        );
-        match fallback_ecc_verification(spki.subject_public_key.raw_bytes(), signature, message) {
-            Ok(()) => Ok(()),
-            Err(IiAuthError::InvalidPublicKey) => Err(IiAuthError::UnsupportedKeyAlgorithm),
-            Err(other) => Err(other),
+        SignatureAlgorithm::EcdsaP256 => verify_p256_signature(key_bytes, signature, message),
+        SignatureAlgorithm::EcdsaSecp256k1 => {
+            verify_k256_signature(key_bytes, signature, message)
         }
     }
 }
 
-fn verify_p256_key(
+#[derive(Clone, Copy)]
+enum SignatureAlgorithm {
+    Ed25519,
+    EcdsaP256,
+    EcdsaSecp256k1,
+}
+
+fn determine_signature_algorithm(
+    spki: &SubjectPublicKeyInfoRef<'_>,
+) -> Result<SignatureAlgorithm, IiAuthError> {
+    if spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.101.112") {
+        return Ok(SignatureAlgorithm::Ed25519);
+    }
+
+    if spki.algorithm.oid == ALGORITHM_OID {
+        let params = spki
+            .algorithm
+            .parameters
+            .ok_or(IiAuthError::UnsupportedKeyAlgorithm)?;
+        let curve_oid = params
+            .decode_as::<EcParameters>()
+            .map_err(|_| IiAuthError::InvalidPublicKey)?
+            .named_curve()
+            .ok_or(IiAuthError::UnsupportedKeyAlgorithm)?;
+
+        return match curve_oid {
+            oid if oid == NistP256::OID => Ok(SignatureAlgorithm::EcdsaP256),
+            oid if oid == Secp256k1::OID => Ok(SignatureAlgorithm::EcdsaSecp256k1),
+            _ => Err(IiAuthError::UnsupportedKeyAlgorithm),
+        };
+    }
+
+    if spki.algorithm.oid == NistP256::OID
+        || spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.6.1.4.1.56387.1.1")
+        || spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.6.1.4.1.56387.1.2")
+    {
+        return Ok(SignatureAlgorithm::EcdsaP256);
+    }
+
+    if spki.algorithm.oid == Secp256k1::OID {
+        return Ok(SignatureAlgorithm::EcdsaSecp256k1);
+    }
+
+    Err(IiAuthError::UnsupportedKeyAlgorithm)
+}
+
+fn verify_p256_signature(
     subject_public_key: &[u8],
     signature: &[u8],
     message: &[u8],
@@ -389,9 +405,13 @@ fn verify_p256_key(
     let candidates = generate_sec1_candidates(subject_public_key, CurveKind::P256);
     let sig = P256Signature::try_from(signature).map_err(|_| IiAuthError::InvalidSignature)?;
 
+    let digest = Sha256::digest(message);
+    let mut hash = [0u8; 32];
+    hash.copy_from_slice(digest.as_slice());
+
     for (idx, candidate) in candidates.iter().enumerate() {
         match P256VerifyingKey::from_sec1_bytes(candidate) {
-            Ok(vk) => match vk.verify(message, &sig) {
+            Ok(vk) => match <P256VerifyingKey as p256::ecdsa::signature::hazmat::PrehashVerifier<P256Signature>>::verify_prehash(&vk, &hash, &sig) {
                 Ok(()) => {
                     if idx > 0 {
                         warn!(
@@ -413,26 +433,7 @@ fn verify_p256_key(
     Err(IiAuthError::InvalidPublicKey)
 }
 
-fn fallback_ecc_verification(
-    subject_public_key: &[u8],
-    signature: &[u8],
-    message: &[u8],
-) -> Result<(), IiAuthError> {
-    if verify_p256_key(subject_public_key, signature, message).is_ok() {
-        return Ok(());
-    }
-
-    match verify_k256_key(subject_public_key, signature, message) {
-        Ok(()) => Ok(()),
-        Err(IiAuthError::InvalidPublicKey) => {
-            warn!("Public key verification failed for both P-256 and secp256k1 fallback paths");
-            Err(IiAuthError::UnsupportedKeyAlgorithm)
-        }
-        Err(other) => Err(other),
-    }
-}
-
-fn verify_k256_key(
+fn verify_k256_signature(
     subject_public_key: &[u8],
     signature: &[u8],
     message: &[u8],
@@ -440,9 +441,13 @@ fn verify_k256_key(
     let candidates = generate_sec1_candidates(subject_public_key, CurveKind::Secp256k1);
     let sig = K256Signature::try_from(signature).map_err(|_| IiAuthError::InvalidSignature)?;
 
+    let digest = Sha256::digest(message);
+    let mut hash = [0u8; 32];
+    hash.copy_from_slice(digest.as_slice());
+
     for (idx, candidate) in candidates.iter().enumerate() {
         match K256VerifyingKey::from_sec1_bytes(candidate) {
-            Ok(vk) => match vk.verify(message, &sig) {
+            Ok(vk) => match <K256VerifyingKey as k256::ecdsa::signature::hazmat::PrehashVerifier<K256Signature>>::verify_prehash(&vk, &hash, &sig) {
                 Ok(()) => {
                     if idx > 0 {
                         warn!(
