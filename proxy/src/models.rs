@@ -1,29 +1,15 @@
-// #[derive(Selectable, QueryableByName)]
-// pub struct User {
-//     // id: i64,
-//     id: i32,
-//     user_principal: String, // TODO: BYTEA
-// }
+use chrono::{DateTime, Utc};
+use diesel::prelude::*;
 
-// #[derive(Selectable, QueryableByName)]
-// pub struct ServerSetup {
-//     id: i64,
-//     // guid: String, // TODO: BYTEA
-//     user_id: i32,
-//     show_hit_miss: bool,
-//     add_forwarded_from_header: bool,
-//     connect_timeout: i32,
-//     read_timeout: i32,
-//     total_timeout: i32,
-// }
+use crate::schema::refresh_tokens;
 
-// #[derive(Selectable, QueryableByName)]
-// pub struct RemoveResponseHeader {
-//     header_name: String,
-// }
-
-// #[derive(Selectable, QueryableByName)]
-// pub struct AddResponseHeader {
-//     header_name: String,
-//     header_value: String,
-// }
+#[derive(Insertable)]
+#[diesel(table_name = refresh_tokens)]
+pub struct NewRefreshToken {
+    pub token_hash: Vec<u8>,
+    pub owner_principal: String,
+    pub client_id: String,
+    pub scope: String,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}

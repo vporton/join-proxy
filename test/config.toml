@@ -5,13 +5,15 @@ db = "postgres://test:123@localhost/proxy"
 
 require_x_principal = false
 
+frontend_origin = "http://localhost:5173"
+
 [bind_proxy]
 host = "localhost"
 port = 8443
 
 [bind_api]
 host = "localhost"
-port = 8080
+port = 8000
 
 [cache]
 cache_timeout = "1m" # How long responses are cached. See for format: https://chatgpt.com/share/4fb8f7c9-ad48-4cfe-a875-efcb6d36bbf1

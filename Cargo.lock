@@ -45,6 +45,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "actix-cors"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "daa239b93927be1ff123eebada5a3ff23e89f0124ccb8609234e5103d5a5ae6d"
+dependencies = [
+ "actix-utils",
+ "actix-web",
+ "derive_more 2.0.1",
+ "futures-util",
+ "log",
+ "once_cell",
+ "smallvec",
+]
+
+[[package]]
 name = "actix-http"
 version = "3.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -751,7 +766,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "145052bdd345b87320e369255277e3fb5152762ad123a901ef5c262dd38fe8d2"
 dependencies = [
  "iana-time-zone",
+ "js-sys",
  "num-traits",
+ "serde",
+ "wasm-bindgen",
  "windows-link 0.2.0",
 ]
 
@@ -2326,28 +2344,38 @@ name = "join-proxy"
 version = "0.0.1"
 dependencies = [
  "actix",
+ "actix-cors",
  "actix-web",
  "anyhow",
  "async-trait",
  "base64 0.22.1",
  "bytes",
  "candid",
+ "chrono",
  "clap",
+ "der",
  "derive_more 2.0.1",
  "diesel",
+ "elliptic-curve",
  "env_logger",
  "hex",
  "http 0.2.12",
  "http 1.3.1",
  "ic-agent 0.44.2",
+ "ic-ed25519",
+ "k256",
  "log",
  "merge",
  "merge_derive",
  "oxide-auth",
  "oxide-auth-actix",
+ "p256",
+ "pkcs8",
+ "rand 0.8.5",
  "reqwest",
  "rustls",
  "rustls-pemfile",
+ "sec1",
  "serde",
  "serde_derive",
  "serde_json",

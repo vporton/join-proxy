@@ -36,5 +36,15 @@ url = "2.5.7"
 serde_urlencoded = "0.7.1"
 merge = { git = "https://git.sr.ht/~porton/merge-rs", version = "0.2.0", branch = "feat/overwrite_by_some" }
 merge_derive = { git = "https://git.sr.ht/~porton/merge-rs", version = "0.2.0", branch = "feat/overwrite_by_some" }
+rand = "0.8.5"
+der = "0.7.9"
+pkcs8 = "0.10.2"
+sec1 = "0.7.3"
+k256 = { version = "0.13.4", features = ["ecdsa"] }
+p256 = { version = "0.13.2", features = ["ecdsa"] }
+elliptic-curve = "0.13.8"
+ic-ed25519 = "0.2.0"
+chrono = { version = "0.4.38", features = ["serde"] }
+actix-cors = "0.7.1"
 # lock_api = "0.4.12"
 # future-parking_lot = "0.3.3"

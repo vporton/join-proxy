@@ -51,6 +51,7 @@ pub struct Serve {
 #[derive(Clone, Debug, /*Default,*/ Deserialize)] // https://github.com/serde-rs/serde/issues/3002
 pub struct Config {
     pub db: String, // TODO@P3: Make it optional.
+    pub frontend_origin: String,
     #[serde(default = "default_proxy_serve")]
     pub bind_proxy: Serve,
     #[serde(default = "default_api_serve")]
@@ -71,6 +72,8 @@ pub struct Args {
     pub config_file: Option<String>,
     #[arg(short, long = "db", help = "DB URL")]
     pub db: Option<String>,
+    #[arg(short, long = "frontend.origin", help = "Frontend origin URL (for CORS)")]
+    pub frontend_origin: Option<String>,
     #[arg(long = "proxy.host", help = "Bind proxy to host")]
     pub bind_proxy_host: Option<String>,
     #[arg(long = "proxy.port", help = "Bind proxy to port")]
@@ -198,6 +201,9 @@ impl Config {
     pub fn update_from_args(&mut self, cli: Args) {
         if let Some(db) = cli.db {
             self.db = db;
+        }
+        if let Some(frontend_origin) = cli.frontend_origin {
+            self.frontend_origin = frontend_origin;
         }
         if let Some(proxy_host) = cli.bind_proxy_host {
             self.bind_proxy.host = proxy_host;

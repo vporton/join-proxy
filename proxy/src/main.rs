@@ -12,6 +12,7 @@ use actix_web::{
     web::{self, Data},
     App, HttpResponse, HttpServer,
 };
+use actix_cors::Cors;
 use anyhow::bail;
 use anyhow::{anyhow, Context};
 use cache::{cache::BinaryCache, mem_cache::BinaryMemCache};
@@ -35,7 +36,7 @@ use std::{
 use tokio::sync::Mutex;
 
 use crate::{
-    auth::{authorize, refresh, token},
+    auth::{authorize, challenge, refresh, token, DbConn},
     config::{Args, Config},
     errors::MyError,
 };
@@ -530,7 +531,11 @@ async fn main() -> anyhow::Result<()> {
     let database_url2 = database_url.clone();
     let is_https = config.bind_proxy.https; // FIXME: for API?
 
-    let oauth_state = auth::State::preconfigured().start();
+    let challenge_store = Arc::new(std::sync::Mutex::new(auth::ChallengeStore::new()));
+    let oauth_state = auth::State::preconfigured(challenge_store.clone()).start();
+    let oauth_db_conn: DbConn = Arc::new(tokio::sync::Mutex::new(
+        PgConnection::establish(&database_url2).expect("DB connection"),
+    ));
 
     let config2 = config.clone(); // TODO: hack
     let (cert_file, key_file) = (config.cert_file.clone(), config.key_file.clone());
@@ -592,6 +597,8 @@ async fn main() -> anyhow::Result<()> {
     }?
     .run();
     let (cert_file, key_file) = (config2.cert_file.clone(), config2.key_file.clone());
+    let challenge_store_api = challenge_store.clone();
+    let oauth_db_conn_clone = oauth_db_conn.clone();
     let api_server = HttpServer::new(move || {
         let builder = ClientBuilder::new();
         let state = State {
@@ -601,14 +608,22 @@ async fn main() -> anyhow::Result<()> {
                 PgConnection::establish(&database_url2).expect("DB connection"),
             ),
         };
+        let oauth_db_conn = oauth_db_conn_clone.clone();
+        let cors = Cors::default()
+            .allowed_origin(&config2.frontend_origin)
+            .supports_credentials();
         App::new()
+            .wrap(cors)
             .app_data(Data::new(config2.clone())) // TODO: Can remove clone?
             .app_data(Data::new(state))
             .app_data(Data::new(oauth_state.clone()))
+            .app_data(Data::new(oauth_db_conn))
+            .app_data(Data::new(challenge_store_api.clone()))
             .service(web::scope("/api"))
             .service(
                 web::scope("/auth")
                     .route("/authorize", web::route().to(authorize))
+                    .route("/challenge", web::get().to(challenge))
                     .route("/token", web::route().to(token))
                     .route("/refresh", web::route().to(refresh)), // .route("/protected", web::route().to(protected_resource)))
             )

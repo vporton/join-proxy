@@ -43,6 +43,18 @@ diesel::table! {
 }
 
 diesel::table! {
+    refresh_tokens (id) {
+        id -> Int8,
+        token_hash -> Bytea,
+        owner_principal -> Text,
+        client_id -> Text,
+        scope -> Text,
+        expires_at -> Timestamptz,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     server_setups (id) {
         id -> Int8,
         guid -> Bytea,
@@ -68,6 +80,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     remove_request_headers,
     remove_response_headers,
     request,
+    refresh_tokens,
     server_setups,
     users,
 );
