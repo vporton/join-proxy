@@ -57,7 +57,7 @@ pub struct Config {
 #[derive(Parser)]
 #[command(version, name = "join-proxy", about = "A deduplication proxy for ICP")]
 pub struct Args {
-    #[arg(short, long="config", default_value="config.toml", help="Config file")]
+    #[arg(short, long="config", help="Config file")]
     pub config_file: Option<String>,
     #[arg(long="proxy.host", help="Bind proxy to host")]
     pub bind_proxy_host: Option<String>,
