@@ -41,7 +41,7 @@ pub struct Serve {
     pub https: bool,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct Config {
     pub bind_proxy: Serve,
     pub bind_api: Serve,
@@ -58,7 +58,7 @@ pub struct Config {
 #[command(version, name = "join-proxy", about = "A deduplication proxy for ICP")]
 pub struct Args {
     #[arg(short, long="config", default_value="config.toml", help="Config file")]
-    pub config_file: String,
+    pub config_file: Option<String>,
     #[arg(long="proxy.host", help="Bind proxy to host")]
     pub bind_proxy_host: Option<String>,
     #[arg(long="proxy.port", help="Bind proxy to port")]

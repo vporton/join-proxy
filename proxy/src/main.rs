@@ -390,10 +390,14 @@ async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let cli = Args::parse();
-    let config_string = read_to_string(&cli.config_file)
-        .map_err(|e| anyhow!("Cannot read config file {}: {}", cli.config_file, e))?;
-    let mut config: Config = toml::from_str(&config_string)
-        .map_err(|e| anyhow!("Cannot read config file {}: {}", cli.config_file, e))?;
+    let mut config: Config = if let Some(config_file) = cli.config_file {
+        let config_string = read_to_string(&config_file)
+            .map_err(|e| anyhow!("Cannot read config file {}: {}", config_file, e))?;
+        toml::from_str(&config_string)
+            .map_err(|e| anyhow!("Cannot parse config file {}: {}", config_file, e))?
+    } else {
+        Config::default()
+    };
     config.update_from_args(cli);
     // TODO
     if let Some(callback) = &mut config.callback {
