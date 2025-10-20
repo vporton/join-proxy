@@ -35,7 +35,7 @@ use std::{
 use tokio::sync::Mutex;
 
 use crate::{
-    auth::{refresh, token},
+    auth::{authorize, refresh, token},
     config::{Args, Config},
     errors::MyError,
 };
@@ -608,7 +608,7 @@ async fn main() -> anyhow::Result<()> {
             .service(web::scope("/api"))
             .service(
                 web::scope("/auth")
-                    // .route("/authorize", web::route().to(authorize))
+                    .route("/authorize", web::route().to(authorize))
                     .route("/token", web::route().to(token))
                     .route("/refresh", web::route().to(refresh)), // .route("/protected", web::route().to(protected_resource)))
             )

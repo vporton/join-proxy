@@ -5,10 +5,11 @@ use actix_web::web;
 use oxide_auth::{
     endpoint::{Endpoint, OwnerConsent, OwnerSolicitor, QueryParameter, Solicitation},
     frontends::simple::endpoint::{ErrorInto, FnSolicitor, Generic, Vacant},
-    primitives::prelude::{AuthMap, ClientMap, RandomGenerator, Scope, TokenMap},
+    primitives::prelude::{AuthMap, Client, ClientMap, RandomGenerator, Scope, TokenMap},
 };
 use oxide_auth_actix::{
-    ClientCredentials, OAuthMessage, OAuthOperation, OAuthRequest, OAuthResponse, Refresh, Token, WebError
+    Authorize, ClientCredentials, OAuthMessage, OAuthOperation, OAuthRequest, OAuthResponse,
+    Refresh, Token, WebError,
 };
 
 // Based on https://github.com/197g/oxide-auth/blob/master/oxide-auth-actix/examples/actix-example/src/main.rs
@@ -25,6 +26,7 @@ pub struct State {
 }
 
 enum Extras {
+    Authorize,
     ClientCredentials,
     Nothing,
 }
@@ -50,10 +52,17 @@ pub async fn token(
                 .send(ClientCredentials(req).wrap(Extras::ClientCredentials))
                 .await?
         }
+        Some("refresh_token") => state.send(Refresh(req).wrap(Extras::Nothing)).await?,
         // Each flow will validate the grant_type again, so we can let one case handle
         // any incorrect or unsupported options.
         _ => state.send(Token(req).wrap(Extras::Nothing)).await?,
     }
+}
+
+pub async fn authorize(
+    (req, state): (OAuthRequest, web::Data<Addr<State>>),
+) -> Result<OAuthResponse, WebError> {
+    state.send(Authorize(req).wrap(Extras::Authorize)).await?
 }
 
 pub async fn refresh(
@@ -66,18 +75,25 @@ impl State {
     pub fn preconfigured() -> Self {
         State {
             endpoint: Generic {
-                registrar: Vec::new()
-                // registrar: vec![Client::confidential(
-                //     "LocalClient",
-                //     "http://localhost:8021/endpoint"
-                //         .parse::<url::Url>()
-                //         .unwrap()
-                //         .into(),
-                //     "default-scope".parse().unwrap(),
-                //     "SecretSecret".as_bytes(),
-                // )]
-                    .into_iter()
-                    .collect(),
+                // registrar: Vec::new()
+                // FIXME
+                registrar: vec![Client::confidential(
+                    "LocalClient",
+                    "http://localhost:8000/redirect"
+                        .parse::<url::Url>()
+                        .unwrap()
+                        .into(),
+                    "default offline_access".parse().unwrap(),
+                    "SecretSecret".as_bytes(),
+                )
+                .with_additional_redirect_uris(vec![
+                    "http://localhost:8021/endpoint"
+                        .parse::<url::Url>()
+                        .unwrap()
+                        .into(),
+                ])]
+                .into_iter()
+                .collect(),
                 // Authorization tokens are 16 byte random keys to a memory hash map.
                 authorizer: AuthMap::new(RandomGenerator::new(16)),
                 // Bearer tokens are also random generated but 256-bit tokens, since they live longer
@@ -90,8 +106,11 @@ impl State {
 
                 solicitor: Vacant,
 
-                // A single scope that will guard resources for this endpoint
-                scopes: vec!["scope".parse().unwrap()],
+                // Scopes enabled for the endpoint
+                scopes: vec![
+                    "default".parse().unwrap(),
+                    "offline_access".parse().unwrap(),
+                ],
 
                 response: OAuthResponse::ok,
             },
@@ -130,6 +149,14 @@ where
         let (op, ex) = msg.into_inner();
 
         match ex {
+            Extras::Authorize => {
+                let solicitor =
+                    FnSolicitor(move |_: &mut OAuthRequest, solicitation: Solicitation| {
+                        OwnerConsent::Authorized(solicitation.pre_grant().client_id.clone())
+                    });
+
+                op.run(self.with_solicitor(solicitor))
+            }
             Extras::ClientCredentials => {
                 let solicitor =
                     FnSolicitor(move |_: &mut OAuthRequest, solicitation: Solicitation| {
