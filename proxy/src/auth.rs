@@ -44,32 +44,6 @@ enum Extras {
     Nothing,
 }
 
-// struct ClientCredentialsBodyAllowed(pub OAuthRequest);
-
-// impl OAuthOperation for ClientCredentialsBodyAllowed {
-//     type Item = OAuthResponse;
-//     type Error = WebError;
-
-//     fn run<E>(self, endpoint: E) -> Result<Self::Item, Self::Error>
-//     where
-//         E: Endpoint<OAuthRequest>,
-//         WebError: From<E::Error>,
-//     {
-//         let mut flow = ClientCredentialsFlow::prepare(endpoint)?;
-//         flow.allow_credentials_in_body(true);
-//         flow.execute(self.0).map_err(WebError::from)
-//     }
-// }
-
-// async fn get_authorize(
-//     (req, state): (OAuthRequest, web::Data<Addr<State>>),
-// ) -> Result<OAuthResponse, WebError> {
-//     // GET requests should not mutate server state and are extremely
-//     // vulnerable accidental repetition as well as Cross-Site Request
-//     // Forgery (CSRF).
-//     state.send(Authorize(req).wrap(Extras::AuthGet)).await?
-// }
-
 pub async fn authorize(
     (r, req, state): (HttpRequest, OAuthRequest, web::Data<Addr<State>>),
 ) -> Result<OAuthResponse, WebError> {
@@ -117,48 +91,6 @@ async fn index(
         Err(Err(e)) => Err(e),
     }
 }
-
-// async fn start_browser() -> () {
-//     let _ = thread::spawn(|| support::open_in_browser(8020));
-// }
-
-// Example of a main function of an actix-web server supporting oauth.
-// #[actix_web::main]
-// pub async fn main() -> std::io::Result<()> {
-//     std::env::set_var(
-//         "RUST_LOG",
-//         "actix_example=info,actix_web=info,actix_http=info,actix_service=info",
-//     );
-//     env_logger::init();
-
-//     // Start, then open in browser, don't care about this finishing.
-//     rt::spawn(start_browser());
-
-//     let state = State::preconfigured().start();
-
-//     // Create the main server instance
-//     let server = HttpServer::new(move || {
-//         App::new()
-//             .app_data(Data::new(state.clone()))
-//             .wrap(NormalizePath::new(TrailingSlash::Trim))
-//             .wrap(Logger::default())
-//             .service(
-//                 web::resource("/authorize")
-//                     .route(web::get().to(get_authorize))
-//                     .route(web::post().to(post_authorize)),
-//             )
-//             .route("/token", web::post().to(token))
-//             .route("/refresh", web::post().to(refresh))
-//             .route("/", web::get().to(index))
-//     })
-//     .bind("localhost:8020")
-//     .expect("Failed to bind to socket")
-//     .run();
-
-//     let client = support::dummy_client();
-
-//     futures::try_join!(server, client).map(|_| ())
-// }
 
 impl State {
     pub fn preconfigured() -> Self {
