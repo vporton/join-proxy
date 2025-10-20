@@ -355,7 +355,10 @@ fn verify_signature(
             }
             _ => fallback_ecc_verification(spki.subject_public_key.raw_bytes(), signature, message),
         }
-    } else if spki.algorithm.oid == NistP256::OID {
+    } else if spki.algorithm.oid == NistP256::OID
+        || spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.6.1.4.1.56387.1.1")
+        || spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.6.1.4.1.56387.1.2")
+    {
         verify_p256_key(spki.subject_public_key.raw_bytes(), signature, message)
     } else if spki.algorithm.oid == Secp256k1::OID {
         verify_k256_key(spki.subject_public_key.raw_bytes(), signature, message)
