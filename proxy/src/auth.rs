@@ -3,6 +3,7 @@
 use actix::{Actor, Addr, Context, Handler, Message};
 use actix_web::{error::ErrorInternalServerError, web, HttpResponse};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use blsttc::G1Projective;
 use der::Decode;
 use elliptic_curve::ALGORITHM_OID;
 use ic_agent::export::Principal;
@@ -165,6 +166,8 @@ enum IiAuthError {
     MissingSigningKey,
     #[error("delegation public key mismatch")]
     PublicKeyMismatch,
+    #[error("wrong binary length")]
+    TryFromSliceError,
 }
 
 impl IiAuthError {
@@ -358,7 +361,14 @@ fn verify_signature(
             verify_k256_signature(key_bytes, signature, hash)
         }
         SignatureAlgorithm::BLS => {
-            // FIXME
+            use blsttc::{PublicKey, Signature};
+            // FIXME@P1: `unwrap()`
+            let pk = PublicKey::from_bytes(key_bytes.try_into().map_err(|_| IiAuthError::TryFromSliceError)?).unwrap();
+            let sig = Signature::from_bytes(signature.try_into().map_err(|_| IiAuthError::TryFromSliceError)?).unwrap();
+            let hash = G1Projective::hash_to_curve(message, b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_", b"");
+            if !pk.verify(&sig, hash.to_compressed()) {
+                return Err(IiAuthError::InvalidPublicKey);
+            }
             Ok(())
         }
     }
@@ -671,7 +681,7 @@ fn verify_internet_identity(
     // let root_key = hex::decode("308182301d060d2b0601040182dc7c0503010201060c2b0601040182dc7c05030201036100814c0e6ec71fab583b08bd81373c255c3c371b2e84863c98a4f1e08b74235d14fb5d9c0cd546d9685f913a0c0b2cc5341583bf4b4392e467db96d65b9bb4cb717112f8472e0d5a4d14505ffd7484b01291091c5f87b98883463f98091a0baaae").unwrap();
     let signing_key = verify_delegation_chain(/*&proof.public_key*/root_key, &proof.delegations)?;
     let mut signed_message = Vec::with_capacity(IC_REQUEST_DOMAIN.len() + proof.challenge.len());
-    signed_message.extend_from_slice(IC_REQUEST_DOMAIN);
+    // signed_message.extend_from_slice(IC_REQUEST_DOMAIN); // TODO@P2: It has been tested to work with this commented, despite specs?
     signed_message.extend_from_slice(&proof.challenge);
     verify_signature(&signing_key, &proof.signature, &signed_message)?;
 
