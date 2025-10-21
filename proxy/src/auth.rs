@@ -151,7 +151,7 @@ enum IiAuthError {
     InvalidDelegation(#[from] serde_json::Error),
     #[error("delegation expired")]
     DelegationExpired,
-    #[error("invalid public key encoding")]
+    #[error("invalid public key encoding")] // FIXME@P2: It is the error, when signature was not verified, not its name.
     InvalidPublicKey,
     #[error("unsupported public key algorithm")]
     UnsupportedKeyAlgorithm,
@@ -378,7 +378,7 @@ fn determine_signature_algorithm(
     warn!("{}", spki.algorithm.oid);
     if spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.101.112") {
         return Ok(SignatureAlgorithm::Ed25519);
-    } else if spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.6.1.4.1.44668.5.3.1.1") {
+    } else if spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.6.1.4.1.44668.5.3.1.2.1") { // TODO: Why not standard BLS 1.3.6.1.4.1.44668.5.3.1.1?
         return Ok(SignatureAlgorithm::BLS);
     }
 
