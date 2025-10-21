@@ -22,3 +22,10 @@ cache_timeout = "1m" # How long responses are cached. See for format: https://ch
 connect_timeout = "20s"
 read_timeout = "30s"
 total_timeout = "60s"
+
+# FIXME
+[callback]
+ic_local = true
+ic_url = "http://127.0.0.1:8080" # "http://localhost:8080"
+canister = "aaaaa-aa" # will be overwritten
+func = "checkRequest"
