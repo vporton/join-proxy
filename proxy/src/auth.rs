@@ -426,6 +426,7 @@ fn verify_signature(
         
             println!("✅ Extracted signature length: {}", sig_bytes.len()); // should be 96
             let signature = &sig_bytes;
+            println!("{:?}", signature);
             
             let pk = PublicKey::from_bytes(key_bytes).map_err(|err| {warn!("{:?}", err); IiAuthError::InvalidKey})?;
             let sig = Signature::from_bytes(signature).map_err(|err| {warn!("{:?}", err); IiAuthError::InvalidSignature})?;
@@ -433,14 +434,17 @@ fn verify_signature(
             let aug = b"";
             // let hashed_msg = sig.blst_hash_to_g1(message, dst, aug);
             // let hashed_affine = hashed_msg.to_affine();
-            if sig.verify(
+            let prefix = b"\x0eic-state-root"; // 14 = len("ic-state-root")
+            let result = sig.verify(
                 true,
-                &blst::blst_scalar::hash_to(message, dst).unwrap().b, // FIXME@P2: `unwrap`
+                &[prefix, message].concat(), // &blst::blst_scalar::hash_to(message, dst).unwrap().b, // FIXME@P2: `unwrap`
                 dst,
                 aug,
                 &pk,
-                false, // FIXME@P2: correct?
-            ) != BLST_ERROR::BLST_SUCCESS {
+                true,
+            );
+            warn!("result = {:?}", result);
+            if result != BLST_ERROR::BLST_SUCCESS {
                 return Err(IiAuthError::VerificationFailed);
             }
             Ok(())
