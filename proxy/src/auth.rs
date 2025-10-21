@@ -1,7 +1,7 @@
 use actix::{Actor, Addr, Context, Handler, Message};
 use actix_web::{error::ErrorInternalServerError, web, HttpResponse};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use blsttc::G1Projective;
+use blsttc::{G1Projective, G2Projective};
 use der::Decode;
 use elliptic_curve::ALGORITHM_OID;
 use ic_agent::export::Principal;
@@ -342,6 +342,7 @@ fn verify_signature(
         .map_err(|_| IiAuthError::InvalidPublicKey)?;
 
     let algorithm = determine_signature_algorithm(&spki)?;
+    warn!("ALGORITHM: {:?}", algorithm);    
     let key_bytes = spki.subject_public_key.raw_bytes();
 
     match algorithm {
@@ -364,6 +365,14 @@ fn verify_signature(
             verify_k256_signature(key_bytes, signature, hash)
         }
         SignatureAlgorithm::BLS => {
+            // use simple_asn1::{ASN1Block, from_der};
+            // let asn1 = from_der(&public_key_der).unwrap();
+            // if let ASN1Block::Sequence(_, items) = &asn1[0] {
+            //     if let ASN1Block::BitString(_, _, key_bytes) = &items[1] {
+            //         println!("Raw key len: {}", key_bytes.len()); // should be 48
+            //     }
+            // }
+
             use blsttc::{PublicKey, Signature};
             let pk = PublicKey::from_bytes(
                 G1Projective::from_uncompressed(
@@ -381,7 +390,7 @@ fn verify_signature(
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum SignatureAlgorithm {
     Ed25519,
     EcdsaP256,
@@ -396,7 +405,7 @@ fn determine_signature_algorithm(
     if spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.101.112") {
         return Ok(SignatureAlgorithm::Ed25519);
     } else if spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.6.1.4.1.44668.5.3.1.2.1") { // TODO: Why not standard BLS 1.3.6.1.4.1.44668.5.3.1.1?
-        return Ok(SignatureAlgorithm::BLS);
+        return Ok(SignatureAlgorithm::/*EcdsaSecp256k1*/BLS); // FIXME@P1: `local` network algorithm seems to be Secp256k1
     }
 
     if spki.algorithm.oid == ALGORITHM_OID {
