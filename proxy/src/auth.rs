@@ -435,11 +435,11 @@ fn verify_signature(
             // let hashed_affine = hashed_msg.to_affine();
             if sig.verify(
                 true,
-                message,
+                &blst::blst_scalar::hash_to(message, dst).unwrap().b, // FIXME@P2: `unwrap`
                 dst,
                 aug,
                 &pk,
-                false
+                false, // FIXME@P2: correct?
             ) != BLST_ERROR::BLST_SUCCESS {
                 return Err(IiAuthError::VerificationFailed);
             }
