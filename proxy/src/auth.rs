@@ -1,7 +1,7 @@
 use actix::{Actor, Addr, Context, Handler, Message};
 use actix_web::{error::ErrorInternalServerError, web, HttpResponse};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use blsttc::{G1Projective, G2Projective};
+// use blsttc::{G1Projective, G2Projective};
 use der::Decode;
 use elliptic_curve::ALGORITHM_OID;
 use ic_agent::export::Principal;
@@ -154,6 +154,8 @@ enum IiAuthError {
     InvalidPublicKey,
     #[error("unsupported public key algorithm")]
     UnsupportedKeyAlgorithm,
+    #[error("invalid public key")]
+    InvalidKey,
     #[error("invalid signature")]
     InvalidSignature,
     #[error("Internet Identity challenge expired or unknown")]
@@ -373,16 +375,20 @@ fn verify_signature(
             //     }
             // }
 
-            use blsttc::{PublicKey, Signature};
-            let pk = PublicKey::from_bytes(
-                G1Projective::from_uncompressed(
-                    key_bytes.try_into().map_err(|_| IiAuthError::KeyLength(key_bytes.len()))?
-                ).into_option().ok_or_else(|| IiAuthError::InvalidPublicKey)?
-                    .to_compressed()
-            ).unwrap();
-            let sig = Signature::from_bytes(signature.try_into().map_err(|_| IiAuthError::SignatureLength(signature.len()))?).map_err(|_| IiAuthError::InvalidSignature)?;
-            let hash = G1Projective::hash_to_curve(message, b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_"/* DFINITY's dst */, b"");
-            if !pk.verify(&sig, hash.to_compressed()) {
+            // use blsttc::{PublicKey, Signature};
+            use blst::{*, min_sig::*};
+
+            let pk = PublicKey::from_bytes(key_bytes).map_err(|_| IiAuthError::InvalidKey)?;
+            let sig = Signature::from_bytes(signature).map_err(|_| IiAuthError::InvalidSignature)?;
+            // let hash = G1Projective::hash_to_curve(message, b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_"/* DFINITY's dst */, b"");
+            if sig.verify(
+                true,
+                message,
+                b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_"/* DFINITY's dst */,
+                b"",
+                &pk,
+                true
+            ) != BLST_ERROR::BLST_SUCCESS {
                 return Err(IiAuthError::VerificationFailed);
             }
             Ok(())

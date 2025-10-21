@@ -46,7 +46,7 @@ elliptic-curve = "0.13.8"
 ic-ed25519 = "0.2.0"
 chrono = { version = "0.4.38", features = ["serde"] }
 actix-cors = "0.7.1"
-blsttc = "8.0.2"
 subtle = "2.6.1"
+blst = "0.3.16"
 # lock_api = "0.4.12"
 # future-parking_lot = "0.3.3"
