@@ -1,5 +1,3 @@
-// mod support;
-
 use actix::{Actor, Addr, Context, Handler, Message};
 use actix_web::{error::ErrorInternalServerError, web, HttpResponse};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -166,8 +164,10 @@ enum IiAuthError {
     MissingSigningKey,
     #[error("delegation public key mismatch")]
     PublicKeyMismatch,
-    #[error("wrong binary length")]
-    TryFromSliceError,
+    #[error("invalid public key length: {0}")]
+    KeyLength(usize),
+    #[error("invalid signature length: {0}")]
+    SignatureLength(usize),
 }
 
 impl IiAuthError {
@@ -363,9 +363,10 @@ fn verify_signature(
         SignatureAlgorithm::BLS => {
             use blsttc::{PublicKey, Signature};
             // FIXME@P1: `unwrap()`
-            let pk = PublicKey::from_bytes(key_bytes.try_into().map_err(|_| IiAuthError::TryFromSliceError)?).unwrap();
-            let sig = Signature::from_bytes(signature.try_into().map_err(|_| IiAuthError::TryFromSliceError)?).unwrap();
-            let hash = G1Projective::hash_to_curve(message, b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_", b"");
+            // FIXME@P1: Check `InvalidPublicKey` usages:
+            let pk = PublicKey::from_bytes(G1Projective::to_compressed(G1Projective::from_uncompressed(key_bytes.try_into().map_err(|_| IiAuthError::KeyLength(key_bytes.len()))))).map_err(|_| IiAuthError::InvalidPublicKey)?;
+            let sig = Signature::from_bytes(signature.try_into().map_err(|_| IiAuthError::SignatureLength(signature.len()))?).map_err(|_| IiAuthError::InvalidSignature)?;
+            let hash = G1Projective::hash_to_curve(message, b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_"/* DFINITY's dst */, b"");
             if !pk.verify(&sig, hash.to_compressed()) {
                 return Err(IiAuthError::InvalidPublicKey);
             }
