@@ -168,6 +168,8 @@ enum IiAuthError {
     KeyLength(usize),
     #[error("invalid signature length: {0}")]
     SignatureLength(usize),
+    #[error("signature verification failed")]
+    VerificationFailed,
 }
 
 impl IiAuthError {
@@ -175,7 +177,7 @@ impl IiAuthError {
         matches!(
             self,
             IiAuthError::MissingParam(_)
-                | IiAuthError::InvalidEncoding(_)
+                | IiAuthError::InvalidEncoding(_) // TODO@P2
                 | IiAuthError::InvalidHex(_)
                 | IiAuthError::InvalidDelegation(_)
                 | IiAuthError::DelegationExpired
@@ -185,6 +187,7 @@ impl IiAuthError {
                 | IiAuthError::MissingSigningKey
                 | IiAuthError::PublicKeyMismatch
                 | IiAuthError::InvalidPublicKey
+                | IiAuthError::VerificationFailed
         )
     }
 }
@@ -368,7 +371,7 @@ fn verify_signature(
             let sig = Signature::from_bytes(signature.try_into().map_err(|_| IiAuthError::SignatureLength(signature.len()))?).map_err(|_| IiAuthError::InvalidSignature)?;
             let hash = G1Projective::hash_to_curve(message, b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_"/* DFINITY's dst */, b"");
             if !pk.verify(&sig, hash.to_compressed()) {
-                return Err(IiAuthError::InvalidPublicKey);
+                return Err(IiAuthError::VerificationFailed);
             }
             Ok(())
         }
@@ -454,7 +457,7 @@ fn verify_p256_signature(
         }
     }
 
-    Err(IiAuthError::InvalidPublicKey)
+    Err(IiAuthError::VerificationFailed)
 }
 
 fn verify_k256_signature(
@@ -486,7 +489,7 @@ fn verify_k256_signature(
         }
     }
 
-    Err(IiAuthError::InvalidPublicKey)
+    Err(IiAuthError::VerificationFailed)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
