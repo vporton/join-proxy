@@ -376,18 +376,70 @@ fn verify_signature(
             // }
 
             // use blsttc::{PublicKey, Signature};
-            use blst::{*, min_sig::*};
-
-            let pk = PublicKey::from_bytes(key_bytes).map_err(|_| IiAuthError::InvalidKey)?;
-            let sig = Signature::from_bytes(signature).map_err(|_| IiAuthError::InvalidSignature)?;
-            // let hash = G1Projective::hash_to_curve(message, b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_"/* DFINITY's dst */, b"");
+            use blst::{BLST_ERROR, min_sig::{PublicKey, Signature}}; // no idea why this combination of imports // FIXME@P2: May be different `min_{sig,pk}` on mainnet
+            println!("Pubkey len = {}", key_bytes.len());
+            println!("Sig len = {}", signature.len());
+            let signed: serde_cbor::Value = serde_cbor::from_slice(&signature[3..]).map_err(|_| IiAuthError::InvalidSignature)?;
+            let signature = &if let serde_cbor::Value::Map(map) = signed {
+                // Find the "certificate" key
+                let cert_bytes = map.iter()
+                    .find_map(|(k, v)| {
+                        if let serde_cbor::Value::Text(t) = k {
+                            if t == "certificate" {
+                                if let serde_cbor::Value::Bytes(b) = v {
+                                    return Some(b.clone());
+                                }
+                            }
+                        }
+                        None
+                    })
+                        .expect("certificate field not found"); // FIXME
+        
+                println!("✅ Extracted certificate length: {}", cert_bytes.len());
+        
+                // Optional: save to file or parse further
+                cert_bytes
+            } else {
+                // anyhow::bail!("Top-level CBOR is not a map");
+                return Err(IiAuthError::InvalidSignature)
+            };
+            // Now extract the raw 96-byte G2 signature
+            // let signature = signed.signature.as_slice();
+            println!("Signature length: {}", signature.len()); // should be 96
+            let cert_val: serde_cbor::Value = serde_cbor::from_slice(&signature).map_err(|_| IiAuthError::InvalidSignature)?;
+            let sig_bytes = if let serde_cbor::Value::Map(map) = cert_val {
+                map.iter()
+                    .find_map(|(k, v)| {
+                        if let serde_cbor::Value::Text(t) = k {
+                            if t == "signature" {
+                                if let serde_cbor::Value::Bytes(b) = v {
+                                    return Some(b.clone());
+                                }
+                            }
+                        }
+                        None
+                    })
+                        .expect("❌ signature not found in certificate") // FIXME
+            } else {
+                return Err(IiAuthError::InvalidSignature)
+            };
+        
+            println!("✅ Extracted signature length: {}", sig_bytes.len()); // should be 96
+            let signature = &sig_bytes;
+            
+            let pk = PublicKey::from_bytes(key_bytes).map_err(|err| {warn!("{:?}", err); IiAuthError::InvalidKey})?;
+            let sig = Signature::from_bytes(signature).map_err(|err| {warn!("{:?}", err); IiAuthError::InvalidSignature})?;
+            let dst = b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_"; // DFINITY's dst
+            let aug = b"";
+            // let hashed_msg = sig.blst_hash_to_g1(message, dst, aug);
+            // let hashed_affine = hashed_msg.to_affine();
             if sig.verify(
                 true,
                 message,
-                b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_"/* DFINITY's dst */,
-                b"",
+                dst,
+                aug,
                 &pk,
-                true
+                false
             ) != BLST_ERROR::BLST_SUCCESS {
                 return Err(IiAuthError::VerificationFailed);
             }
