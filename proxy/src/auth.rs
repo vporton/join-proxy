@@ -370,7 +370,7 @@ fn verify_signature(
                     key_bytes.try_into().map_err(|_| IiAuthError::KeyLength(key_bytes.len()))?
                 ).into_option().ok_or_else(|| IiAuthError::InvalidPublicKey)?
                     .to_compressed()
-            ).map_err(|_| IiAuthError::InvalidPublicKey)?;
+            ).unwrap();
             let sig = Signature::from_bytes(signature.try_into().map_err(|_| IiAuthError::SignatureLength(signature.len()))?).map_err(|_| IiAuthError::InvalidSignature)?;
             let hash = G1Projective::hash_to_curve(message, b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_"/* DFINITY's dst */, b"");
             if !pk.verify(&sig, hash.to_compressed()) {
