@@ -45,7 +45,6 @@ use std::{
 };
 use thiserror::Error;
 use tokio::sync::Mutex as AsyncPgMutex;
-
 use chrono::{Duration as ChronoDuration, Utc};
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
@@ -357,6 +356,10 @@ fn verify_signature(
             hash.copy_from_slice(digest.as_slice());
             verify_k256_signature(key_bytes, signature, hash)
         }
+        SignatureAlgorithm::BLS => {
+            // FIXME
+            Ok(())
+        }
     }
 }
 
@@ -365,6 +368,7 @@ enum SignatureAlgorithm {
     Ed25519,
     EcdsaP256,
     EcdsaSecp256k1,
+    BLS,
 }
 
 fn determine_signature_algorithm(
@@ -372,6 +376,8 @@ fn determine_signature_algorithm(
 ) -> Result<SignatureAlgorithm, IiAuthError> {
     if spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.101.112") {
         return Ok(SignatureAlgorithm::Ed25519);
+    } else if spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.6.1.4.1.44668.5.3.1.1") {
+        return Ok(SignatureAlgorithm::BLS);
     }
 
     if spki.algorithm.oid == ALGORITHM_OID {
@@ -657,7 +663,9 @@ fn verify_internet_identity(
         }
     }
 
-    let signing_key = verify_delegation_chain(&proof.public_key, &proof.delegations)?;
+    // root key, TODO@P3: Move to config.
+    let root_key = hex::decode("30820222300d06092a864886f70d01010105000382020f003082020a0282020100ef2d83f8de26e8274cb723d93cc4f7cfe792d2fd95f4464adac75b42755f1ebf8d47c3655f0d07ce5e3e3943035dc264e508fc50dbfb119ee706da96247f26a68d2d845f861d7371bf9454313de074ab4f95938da1290e673deb5459f4d6a14cddfb7a50dd8702c9ec510e1a9362f50382b66ea487727638643ccd11d51d37c636bd4fcd84b426f576dee605c10bfec6d2ef665985d0fb407913ac706df43abaf3b429f5890cb8b2cd9446d676e2d6d32e838fb98f1c37bbd29db853cf98a4fa693c98b44a9864f7d67f20e157c8975de7821d4833293d7b117fbe4d962d5ab24a52b6e9d7b94096ed97f60cd03d46935ce9c70c16831a5033f1f6705a499316143cd53f94288759ca3466520e52c7852007944b00bb47aba7d1a6b9e6521cf4655d6e2115a3ab33158b0c58bf53df0934253e93f9a6b9aa8eec595e057729ca1f42ad8cf5da56cd970c000418b1fe78a9f2e3756468515636c9b7f252bdbea2dc60d0a5041fc97b666bd4aec5d02766407cba33b48f69eecd28a212bc46d4b966994ab6e5746ba88d9f5c974d1dafa91ae8599dbe76d5b75af18e2d1d5dc605cb2dbbb75b707b033a6e486719df241d4cffb3996679aa980014de6481952ba6b9db0c2c0383ac77fbafc8542c7a922e8cb104409396179fd20518c2289c409eee937abe65b625ed3ebe6be982a527d94591f4b2d9d92ae5d2e003be6a4ba7270203010001").unwrap();
+    let signing_key = verify_delegation_chain(/*&proof.public_key*/root_key.as_slice(), &proof.delegations)?;
     let mut signed_message = Vec::with_capacity(IC_REQUEST_DOMAIN.len() + proof.challenge.len());
     signed_message.extend_from_slice(IC_REQUEST_DOMAIN);
     signed_message.extend_from_slice(&proof.challenge);
