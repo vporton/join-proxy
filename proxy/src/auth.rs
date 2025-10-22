@@ -377,10 +377,8 @@ fn verify_signature(
 
             // use blsttc::{PublicKey, Signature};
             use blst::{BLST_ERROR, min_sig::{PublicKey, Signature}}; // no idea why this combination of imports // FIXME@P2: May be different `min_{sig,pk}` on mainnet
-            println!("Pubkey len = {}", key_bytes.len());
-            println!("Sig len = {}", signature.len());
             let signed: serde_cbor::Value = serde_cbor::from_slice(&signature[3..]).map_err(|_| IiAuthError::InvalidSignature)?;
-            let signature = &if let serde_cbor::Value::Map(map) = signed {
+            let certificate = &if let serde_cbor::Value::Map(map) = signed {
                 // Find the "certificate" key
                 let cert_bytes = map.iter()
                     .find_map(|(k, v)| {
@@ -394,20 +392,14 @@ fn verify_signature(
                         None
                     })
                         .expect("certificate field not found"); // FIXME
-        
-                println!("✅ Extracted certificate length: {}", cert_bytes.len());
-        
                 // Optional: save to file or parse further
                 cert_bytes
             } else {
                 // anyhow::bail!("Top-level CBOR is not a map");
                 return Err(IiAuthError::InvalidSignature)
             };
-            // Now extract the raw 96-byte G2 signature
-            // let signature = signed.signature.as_slice();
-            println!("Signature length: {}", signature.len()); // should be 96
-            let cert_val: serde_cbor::Value = serde_cbor::from_slice(&signature).map_err(|_| IiAuthError::InvalidSignature)?;
-            let sig_bytes = if let serde_cbor::Value::Map(map) = cert_val {
+            let cert_val: serde_cbor::Value = serde_cbor::from_slice(&certificate).map_err(|_| IiAuthError::InvalidSignature)?;
+            let signature = if let serde_cbor::Value::Map(map) = cert_val {
                 map.iter()
                     .find_map(|(k, v)| {
                         if let serde_cbor::Value::Text(t) = k {
@@ -423,13 +415,11 @@ fn verify_signature(
             } else {
                 return Err(IiAuthError::InvalidSignature)
             };
-        
-            println!("✅ Extracted signature length: {}", sig_bytes.len()); // should be 96
-            let signature = &sig_bytes;
-            println!("{:?}", signature);
+            println!("✅ Extracted signature length: {}", signature.len()); // should be 96
+            // FIXME@P1: https://chatgpt.com/s/t_68f81ff6ff9c819187584d046550103e
             
             let pk = PublicKey::from_bytes(key_bytes).map_err(|err| {warn!("{:?}", err); IiAuthError::InvalidKey})?;
-            let sig = Signature::from_bytes(signature).map_err(|err| {warn!("{:?}", err); IiAuthError::InvalidSignature})?;
+            let sig = Signature::from_bytes(&signature).map_err(|err| {warn!("{:?}", err); IiAuthError::InvalidSignature})?;
             let dst = b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_"; // DFINITY's dst
             let aug = b"";
             // let hashed_msg = sig.blst_hash_to_g1(message, dst, aug);
