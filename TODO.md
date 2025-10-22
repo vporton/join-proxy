@@ -1,6 +1,6 @@
 TODO:
 
-- Use https://docs.rs/ic-certification/
+- Use https://docs.rs/ic-certification/ and https://docs.rs/ic-transport-types/latest/ic_transport_types/struct.SignedDelegation.html
 
 - Specify proxy's identity.
 
