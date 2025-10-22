@@ -399,7 +399,24 @@ fn verify_signature(
                 return Err(IiAuthError::InvalidSignature)
             };
             let cert_val: serde_cbor::Value = serde_cbor::from_slice(&certificate).map_err(|_| IiAuthError::InvalidSignature)?;
-            let tree = if let serde_cbor::Value::Map(map) = cert_val {
+            let sig_bytes = if let serde_cbor::Value::Map(ref map) = cert_val {
+                map.iter()
+                    .find_map(|(k, v)| {
+                        if let serde_cbor::Value::Text(t) = k {
+                            if t == "signature" {
+                                if let serde_cbor::Value::Bytes(b) = v {
+                                    return Some(b.clone());
+                                }
+                            }
+                        }
+                        None
+                    })
+                        .expect("❌ signature not found in certificate") // FIXME
+            } else {
+                return Err(IiAuthError::InvalidSignature)
+            };
+            let signature = sig_bytes.as_slice();
+            let tree = if let serde_cbor::Value::Map(ref map) = cert_val {
                 map.iter()
                     .find_map(|(k, v)| {
                         if let serde_cbor::Value::Text(t) = k {
@@ -429,6 +446,7 @@ fn verify_signature(
             
 
             let pk = PublicKey::from_bytes(key_bytes).map_err(|err| {warn!("{:?}", err); IiAuthError::InvalidKey})?;
+            warn!("SIG len = {}", signature.len());
             let sig = Signature::from_bytes(&signature).map_err(|err| {warn!("{:?}", err); IiAuthError::InvalidSignature})?;
             let dst = b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_"; // DFINITY's dst // FIXME@P1: different for mainnet and local?
             let aug = b"";
