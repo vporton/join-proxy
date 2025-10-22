@@ -439,7 +439,7 @@ fn verify_signature(
             let root_hash = hash_tree(&tree); // 32 bytes
 
             // 2. Domain separation prefix
-            let prefix = b"\x0eic-state-root";
+            let prefix = b"\x0dic-state-root";
             let mut message = Vec::with_capacity(prefix.len() + root_hash.len());
             message.extend_from_slice(prefix);
             message.extend_from_slice(&root_hash);
@@ -1297,10 +1297,10 @@ fn hash_tree(node: &serde_cbor::Value) -> [u8; 32] {
                 digest.copy_from_slice(b);
                 digest
             } else {
-                panic!("bad pruned digest")
+                panic!("bad pruned digest") // FIXME@P2
             }
         }
 
-        _ => panic!("unexpected tree format: {:?}", node),
+        _ => panic!("unexpected tree format: {:?}", node), // FIXME@P2
     }
 }
