@@ -445,9 +445,10 @@ fn verify_signature(
             message.extend_from_slice(&root_hash);
             
 
+            warn!("sig = {} bytes, pubkey = {} bytes", signature.len(), key_bytes.len());
             let pk = PublicKey::from_bytes(key_bytes).map_err(|err| {warn!("{:?}", err); IiAuthError::InvalidKey})?;
-            warn!("SIG len = {}", signature.len());
             let sig = Signature::from_bytes(&signature).map_err(|err| {warn!("{:?}", err); IiAuthError::InvalidSignature})?;
+            // TODO@P1: For mainnet: b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_"
             let dst = b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_"; // DFINITY's dst // FIXME@P1: different for mainnet and local?
             let aug = b"";
             let result = sig.verify(
