@@ -2,10 +2,15 @@ use actix::{Actor, Addr, Context, Handler, Message};
 use actix_web::{error::ErrorInternalServerError, web, HttpResponse};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 // use blsttc::{G1Projective, G2Projective};
+use chrono::{Duration as ChronoDuration, Utc};
 use der::Decode;
+use diesel::pg::PgConnection;
+use diesel::prelude::*;
+use diesel::result::Error as DieselError;
 use elliptic_curve::ALGORITHM_OID;
+use ic_certification::{hash_tree::{HashTree, LookupResult}, Certificate};
+use ic_transport_types::{Delegation, SignedDelegation};
 use ic_agent::export::Principal;
-use ic_agent::identity::{Delegation, SignedDelegation};
 use ic_ed25519::PublicKey as Ed25519PublicKey;
 use k256::ecdsa::signature::hazmat::PrehashVerifier as _;
 use k256::{
@@ -36,6 +41,7 @@ use sec1::EcParameters;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use std::{
     collections::HashMap,
     convert::TryFrom,
@@ -44,11 +50,6 @@ use std::{
 };
 use thiserror::Error;
 use tokio::sync::Mutex as AsyncPgMutex;
-use chrono::{Duration as ChronoDuration, Utc};
-use diesel::pg::PgConnection;
-use diesel::prelude::*;
-use diesel::result::Error as DieselError;
-use std::borrow::Cow;
 
 use crate::models::NewRefreshToken;
 use crate::schema::refresh_tokens::dsl as refresh_tokens_dsl;
@@ -68,6 +69,124 @@ pub struct State {
     >,
     challenge_store: ChallengeStoreHandle,
     root_key: Vec<u8>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BlsCanisterSignature {
+    tree: HashTree<Vec<u8>>,
+    certificate: Vec<u8>,
+}
+
+fn verify_bls_delegation(
+    issuer_key_der: &[u8],
+    raw_signature: &[u8],
+    message: &[u8],
+) -> Result<(), IiAuthError> {
+    if raw_signature.len() < 3 {
+        return Err(IiAuthError::InvalidSignature);
+    }
+
+    let sig_doc: BlsCanisterSignature =
+        serde_cbor::from_slice(&raw_signature[3..]).map_err(|_| IiAuthError::InvalidSignature)?;
+    let certificate: Certificate =
+        serde_cbor::from_slice(&sig_doc.certificate).map_err(|_| IiAuthError::InvalidSignature)?;
+
+    verify_certificate_chain(&certificate, issuer_key_der)?;
+
+    let certified_data =
+        extract_certified_data(&certificate.tree).ok_or(IiAuthError::VerificationFailed)?;
+    let tree_root = sig_doc.tree.digest();
+    if certified_data.as_slice() != tree_root {
+        return Err(IiAuthError::VerificationFailed);
+    }
+
+    let message_hash = Sha256::digest(message);
+    if !tree_contains_message_hash(&sig_doc.tree, message_hash.as_slice()) {
+        return Err(IiAuthError::VerificationFailed);
+    }
+
+    Ok(())
+}
+
+fn verify_certificate_chain(
+    certificate: &Certificate,
+    issuer_key_der: &[u8],
+) -> Result<(), IiAuthError> {
+    let verifier_der = if let Some(delegation) = &certificate.delegation {
+        let delegated_cert: Certificate = serde_cbor::from_slice(&delegation.certificate)
+            .map_err(|_| IiAuthError::InvalidSignature)?;
+        verify_certificate_chain(&delegated_cert, issuer_key_der)?;
+        lookup_public_key(&delegated_cert.tree, &delegation.subnet_id)
+            .ok_or(IiAuthError::InvalidSignature)?
+    } else {
+        issuer_key_der.to_vec()
+    };
+
+    verify_certificate_signature(certificate, &verifier_der)
+}
+
+fn verify_certificate_signature(
+    certificate: &Certificate,
+    verifier_der: &[u8],
+) -> Result<(), IiAuthError> {
+    use blst::{
+        min_sig::{PublicKey, Signature},
+        BLST_ERROR,
+    };
+
+    let spki = SubjectPublicKeyInfoRef::from_der(verifier_der)
+        .map_err(|_| IiAuthError::InvalidPublicKey)?;
+    let pk_bytes = spki.subject_public_key.raw_bytes();
+    let pk = PublicKey::from_bytes(pk_bytes).map_err(|_| IiAuthError::InvalidKey)?;
+    let sig =
+        Signature::from_bytes(&certificate.signature).map_err(|_| IiAuthError::InvalidSignature)?;
+
+    const DST: &[u8] = b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_";
+    const IC_STATE_ROOT_DOMAIN_SEPARATOR: &[u8] = b"\x0Dic-state-root";
+
+    let mut message = Vec::with_capacity(IC_STATE_ROOT_DOMAIN_SEPARATOR.len() + 32);
+    message.extend_from_slice(IC_STATE_ROOT_DOMAIN_SEPARATOR);
+    message.extend_from_slice(&certificate.tree.digest());
+
+    let result = sig.verify(true, &message, DST, b"", &pk, true);
+    if result == BLST_ERROR::BLST_SUCCESS {
+        Ok(())
+    } else {
+        Err(IiAuthError::VerificationFailed)
+    }
+}
+
+fn lookup_public_key(tree: &HashTree<Vec<u8>>, subnet_id: &[u8]) -> Option<Vec<u8>> {
+    let path = [b"subnet".as_ref(), subnet_id, b"public_key".as_ref()];
+    match tree.lookup_path(path) {
+        LookupResult::Found(bytes) => Some(bytes.to_vec()),
+        _ => None,
+    }
+}
+
+fn extract_certified_data(tree: &HashTree<Vec<u8>>) -> Option<Vec<u8>> {
+    for path in tree.list_paths() {
+        if let Some(label) = path.last() {
+            if label.as_ref() == b"certified_data" {
+                let path_refs: Vec<&[u8]> = path.iter().map(|label| label.as_ref()).collect();
+                if let LookupResult::Found(bytes) = tree.lookup_path(path_refs) {
+                    return Some(bytes.to_vec());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn tree_contains_message_hash(tree: &HashTree<Vec<u8>>, hash: &[u8]) -> bool {
+    for path in tree.list_paths() {
+        if let (Some(first), Some(last)) = (path.first(), path.last()) {
+            if first.as_ref() == b"sig" && last.as_ref() == hash {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 enum Extras {
@@ -150,7 +269,8 @@ enum IiAuthError {
     InvalidDelegation(#[from] serde_json::Error),
     #[error("delegation expired")]
     DelegationExpired,
-    #[error("invalid public key encoding")] // FIXME@P2: It is the error, when signature was not verified, not its name.
+    #[error("invalid public key encoding")]
+    // FIXME@P2: It is the error, when signature was not verified, not its name.
     InvalidPublicKey,
     #[error("unsupported public key algorithm")]
     UnsupportedKeyAlgorithm,
@@ -166,10 +286,6 @@ enum IiAuthError {
     MissingSigningKey,
     #[error("delegation public key mismatch")]
     PublicKeyMismatch,
-    #[error("invalid public key length: {0}")]
-    KeyLength(usize),
-    #[error("invalid signature length: {0}")]
-    SignatureLength(usize),
     #[error("signature verification failed")]
     VerificationFailed,
 }
@@ -344,7 +460,7 @@ fn verify_signature(
         .map_err(|_| IiAuthError::InvalidPublicKey)?;
 
     let algorithm = determine_signature_algorithm(&spki)?;
-    warn!("ALGORITHM: {:?}", algorithm);    
+    warn!("ALGORITHM: {:?}", algorithm);
     let key_bytes = spki.subject_public_key.raw_bytes();
 
     match algorithm {
@@ -366,105 +482,7 @@ fn verify_signature(
             hash.copy_from_slice(digest.as_slice());
             verify_k256_signature(key_bytes, signature, hash)
         }
-        SignatureAlgorithm::BLS => {
-            // use simple_asn1::{ASN1Block, from_der};
-            // let asn1 = from_der(&public_key_der).unwrap();
-            // if let ASN1Block::Sequence(_, items) = &asn1[0] {
-            //     if let ASN1Block::BitString(_, _, key_bytes) = &items[1] {
-            //         println!("Raw key len: {}", key_bytes.len()); // should be 48
-            //     }
-            // }
-
-            // use blsttc::{PublicKey, Signature};
-            use blst::{BLST_ERROR, min_sig::{PublicKey, Signature}}; // no idea why this combination of imports // FIXME@P2: May be different `min_{sig,pk}` on mainnet
-            let signed: serde_cbor::Value = serde_cbor::from_slice(&signature[3..]).map_err(|_| IiAuthError::InvalidSignature)?;
-            let certificate = &if let serde_cbor::Value::Map(map) = signed {
-                // Find the "certificate" key
-                let cert_bytes = map.iter()
-                    .find_map(|(k, v)| {
-                        if let serde_cbor::Value::Text(t) = k {
-                            if t == "certificate" {
-                                if let serde_cbor::Value::Bytes(b) = v {
-                                    return Some(b.clone());
-                                }
-                            }
-                        }
-                        None
-                    })
-                        .expect("certificate field not found"); // FIXME
-                // Optional: save to file or parse further
-                cert_bytes
-            } else {
-                // anyhow::bail!("Top-level CBOR is not a map");
-                return Err(IiAuthError::InvalidSignature)
-            };
-            let cert_val: serde_cbor::Value = serde_cbor::from_slice(&certificate).map_err(|_| IiAuthError::InvalidSignature)?;
-            let sig_bytes = if let serde_cbor::Value::Map(ref map) = cert_val {
-                map.iter()
-                    .find_map(|(k, v)| {
-                        if let serde_cbor::Value::Text(t) = k {
-                            if t == "signature" {
-                                if let serde_cbor::Value::Bytes(b) = v {
-                                    return Some(b.clone());
-                                }
-                            }
-                        }
-                        None
-                    })
-                        .expect("❌ signature not found in certificate") // FIXME
-            } else {
-                return Err(IiAuthError::InvalidSignature)
-            };
-            let signature = sig_bytes.as_slice();
-            let tree = if let serde_cbor::Value::Map(ref map) = cert_val {
-                map.iter()
-                    .find_map(|(k, v)| {
-                        if let serde_cbor::Value::Text(t) = k {
-                            if t == "tree" {
-                                return Some(v.clone()); // TODO@P3: Can `clone` be removed?
-                                // if let serde_cbor::Value::Bytes(b) = v {
-                                //     return Some(b.clone());
-                                // }
-                            }
-                        }
-                        None
-                    })
-                        .expect("❌ signature not found in certificate") // FIXME@P1: `unwrap`
-            } else {
-                return Err(IiAuthError::InvalidSignature)
-            };
-            // println!("✅ Extracted signature length: {}", signature.len()); // should be 96
-            // FIXME@P1: https://chatgpt.com/s/t_68f81ff6ff9c819187584d046550103e
-            
-            let root_hash = hash_tree(&tree); // 32 bytes
-
-            // 2. Domain separation prefix
-            let prefix = b"\x0dic-state-root";
-            let mut message = Vec::with_capacity(prefix.len() + root_hash.len());
-            message.extend_from_slice(prefix);
-            message.extend_from_slice(&root_hash);
-            
-
-            warn!("sig = {} bytes, pubkey = {} bytes", signature.len(), key_bytes.len());
-            let pk = PublicKey::from_bytes(key_bytes).map_err(|err| {warn!("{:?}", err); IiAuthError::InvalidKey})?;
-            let sig = Signature::from_bytes(&signature).map_err(|err| {warn!("{:?}", err); IiAuthError::InvalidSignature})?;
-            // TODO@P1: For mainnet: b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_"
-            let dst = b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_"; // DFINITY's dst // FIXME@P1: different for mainnet and local?
-            let aug = b"";
-            let result = sig.verify(
-                true,
-                message.as_slice(), // &blst::blst_scalar::hash_to(message, dst).unwrap().b, // FIXME@P2: `unwrap`
-                dst,
-                aug,
-                &pk,
-                true,
-            );
-            warn!("result = {:?}", result);
-            if result != BLST_ERROR::BLST_SUCCESS {
-                return Err(IiAuthError::VerificationFailed);
-            }
-            Ok(())
-        }
+        SignatureAlgorithm::BLS => verify_bls_delegation(public_key_der, signature, message),
     }
 }
 
@@ -482,7 +500,8 @@ fn determine_signature_algorithm(
     warn!("{}", spki.algorithm.oid);
     if spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.101.112") {
         return Ok(SignatureAlgorithm::Ed25519);
-    } else if spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.6.1.4.1.44668.5.3.1.2.1") { // TODO: Why not standard BLS 1.3.6.1.4.1.44668.5.3.1.1?
+    } else if spki.algorithm.oid == ObjectIdentifier::new_unwrap("1.3.6.1.4.1.44668.5.3.1.2.1") {
+        // TODO: Why not standard BLS 1.3.6.1.4.1.44668.5.3.1.1?
         return Ok(SignatureAlgorithm::/*EcdsaSecp256k1*/BLS); // FIXME@P1: `local` network algorithm seems to be Secp256k1
     }
 
@@ -773,7 +792,8 @@ fn verify_internet_identity(
     // root key, TODO@P3: Move to config.
     // FIXME: This is for ICP mainnet ("unsupported public key algorithm"):
     // let root_key = hex::decode("308182301d060d2b0601040182dc7c0503010201060c2b0601040182dc7c05030201036100814c0e6ec71fab583b08bd81373c255c3c371b2e84863c98a4f1e08b74235d14fb5d9c0cd546d9685f913a0c0b2cc5341583bf4b4392e467db96d65b9bb4cb717112f8472e0d5a4d14505ffd7484b01291091c5f87b98883463f98091a0baaae").unwrap();
-    let signing_key = verify_delegation_chain(/*&proof.public_key*/root_key, &proof.delegations)?;
+    let signing_key =
+        verify_delegation_chain(/*&proof.public_key*/ root_key, &proof.delegations)?;
     let mut signed_message = Vec::with_capacity(IC_REQUEST_DOMAIN.len() + proof.challenge.len());
     // signed_message.extend_from_slice(IC_REQUEST_DOMAIN); // TODO@P2: It has been tested to work with this commented, despite specs?
     signed_message.extend_from_slice(&proof.challenge);
@@ -1114,8 +1134,9 @@ impl Handler<IssueClientCredentialsToken> for State {
     fn handle(&mut self, msg: IssueClientCredentialsToken, _: &mut Self::Context) -> Self::Result {
         let IssueClientCredentialsToken { request } = msg;
 
-        let owner_principal = verify_internet_identity(&request, &self.challenge_store, self.root_key.as_slice())
-            .map_err(|err| ClientCredentialsIssueError::InvalidRequest(err.to_string()))?;
+        let owner_principal =
+            verify_internet_identity(&request, &self.challenge_store, self.root_key.as_slice())
+                .map_err(|err| ClientCredentialsIssueError::InvalidRequest(err.to_string()))?;
 
         let client_id =
             get_param(&request, "client_id").unwrap_or_else(|| "LocalClient".to_string());
@@ -1178,7 +1199,10 @@ struct InternetIdentitySolicitor {
 
 impl InternetIdentitySolicitor {
     fn new(challenge_store: ChallengeStoreHandle, root_key: Vec<u8>) -> Self {
-        Self { challenge_store, root_key }
+        Self {
+            challenge_store,
+            root_key,
+        }
     }
 }
 
@@ -1206,7 +1230,10 @@ where
 
         match ex {
             Extras::Authorize => op.run(
-                self.with_solicitor(InternetIdentitySolicitor::new(self.challenge_store.clone(), self.root_key.clone())), // TODO@P3: `clone()`
+                self.with_solicitor(InternetIdentitySolicitor::new(
+                    self.challenge_store.clone(),
+                    self.root_key.clone(),
+                )), // TODO@P3: `clone()`
             ),
             _ => op.run(&mut self.endpoint),
         }
@@ -1247,61 +1274,3 @@ where
 //         &route,
 //     )
 // }
-
-
-fn hash_tree(node: &serde_cbor::Value) -> [u8; 32] {
-    use serde_cbor::Value;
-
-    match node {
-        // Empty node
-        Value::Integer(0) => {
-            let mut h = Sha256::new();
-            h.update(b"ic-hashtree-empty");
-            h.finalize().into()
-        }
-
-        // Fork
-        Value::Array(items) if items.len() == 3 && items[0] == Value::Integer(1) => {
-            let left = hash_tree(&items[1]);
-            let right = hash_tree(&items[2]);
-            let mut h = Sha256::new();
-            h.update(b"ic-hashtree-fork");
-            h.update(left);
-            h.update(right);
-            h.finalize().into()
-        }
-
-        // Labeled
-        Value::Array(items) if items.len() == 3 && items[0] == Value::Integer(2) => {
-            let label = if let Value::Bytes(b) = &items[1] { b } else { panic!("bad label") };
-            let sub = hash_tree(&items[2]);
-            let mut h = Sha256::new();
-            h.update(b"ic-hashtree-labeled");
-            h.update(label);
-            h.update(sub);
-            h.finalize().into()
-        }
-
-        // Leaf
-        Value::Array(items) if items.len() == 2 && items[0] == Value::Integer(3) => {
-            let data = if let Value::Bytes(b) = &items[1] { b } else { panic!("bad leaf") };
-            let mut h = Sha256::new();
-            h.update(b"ic-hashtree-leaf");
-            h.update(data);
-            h.finalize().into()
-        }
-
-        // Pruned
-        Value::Array(items) if items.len() == 2 && items[0] == Value::Integer(4) => {
-            if let Value::Bytes(b) = &items[1] {
-                let mut digest = [0u8; 32];
-                digest.copy_from_slice(b);
-                digest
-            } else {
-                panic!("bad pruned digest") // FIXME@P2
-            }
-        }
-
-        _ => panic!("unexpected tree format: {:?}", node), // FIXME@P2
-    }
-}

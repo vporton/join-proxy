@@ -532,7 +532,11 @@ async fn main() -> anyhow::Result<()> {
     let is_https = config.bind_proxy.https; // FIXME: for API?
 
     let challenge_store = Arc::new(std::sync::Mutex::new(auth::ChallengeStore::new()));
-    let oauth_state = auth::State::preconfigured(challenge_store.clone(), agent2.as_ref().unwrap().read_root_key()).start(); // FIXME@P1: Why `unwrap` here?
+    let oauth_state = auth::State::preconfigured(
+        challenge_store.clone(),
+        agent2.as_ref().unwrap().read_root_key(), // FIXME@P1: Why `unwrap` here?
+    )
+    .start(); // FIXME@P1: Why `unwrap` here?
     let oauth_db_conn: DbConn = Arc::new(tokio::sync::Mutex::new(
         PgConnection::establish(&database_url2).expect("DB connection"),
     ));
