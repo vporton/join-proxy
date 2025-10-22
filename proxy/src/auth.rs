@@ -399,35 +399,42 @@ fn verify_signature(
                 return Err(IiAuthError::InvalidSignature)
             };
             let cert_val: serde_cbor::Value = serde_cbor::from_slice(&certificate).map_err(|_| IiAuthError::InvalidSignature)?;
-            let signature = if let serde_cbor::Value::Map(map) = cert_val {
+            let tree = if let serde_cbor::Value::Map(map) = cert_val {
                 map.iter()
                     .find_map(|(k, v)| {
                         if let serde_cbor::Value::Text(t) = k {
-                            if t == "signature" {
-                                if let serde_cbor::Value::Bytes(b) = v {
-                                    return Some(b.clone());
-                                }
+                            if t == "tree" {
+                                return Some(v.clone()); // TODO@P3: Can `clone` be removed?
+                                // if let serde_cbor::Value::Bytes(b) = v {
+                                //     return Some(b.clone());
+                                // }
                             }
                         }
                         None
                     })
-                        .expect("❌ signature not found in certificate") // FIXME
+                        .expect("❌ signature not found in certificate") // FIXME@P1: `unwrap`
             } else {
                 return Err(IiAuthError::InvalidSignature)
             };
-            println!("✅ Extracted signature length: {}", signature.len()); // should be 96
+            // println!("✅ Extracted signature length: {}", signature.len()); // should be 96
             // FIXME@P1: https://chatgpt.com/s/t_68f81ff6ff9c819187584d046550103e
             
+            let root_hash = hash_tree(&tree); // 32 bytes
+
+            // 2. Domain separation prefix
+            let prefix = b"\x0eic-state-root";
+            let mut message = Vec::with_capacity(prefix.len() + root_hash.len());
+            message.extend_from_slice(prefix);
+            message.extend_from_slice(&root_hash);
+            
+
             let pk = PublicKey::from_bytes(key_bytes).map_err(|err| {warn!("{:?}", err); IiAuthError::InvalidKey})?;
             let sig = Signature::from_bytes(&signature).map_err(|err| {warn!("{:?}", err); IiAuthError::InvalidSignature})?;
             let dst = b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_"; // DFINITY's dst // FIXME@P1: different for mainnet and local?
             let aug = b"";
-            // let hashed_msg = sig.blst_hash_to_g1(message, dst, aug);
-            // let hashed_affine = hashed_msg.to_affine();
-            let prefix = b"\x0eic-state-root"; // 14 = len("ic-state-root")
             let result = sig.verify(
                 true,
-                &[prefix, message].concat(), // &blst::blst_scalar::hash_to(message, dst).unwrap().b, // FIXME@P2: `unwrap`
+                message.as_slice(), // &blst::blst_scalar::hash_to(message, dst).unwrap().b, // FIXME@P2: `unwrap`
                 dst,
                 aug,
                 &pk,
@@ -1221,3 +1228,61 @@ where
 //         &route,
 //     )
 // }
+
+
+fn hash_tree(node: &serde_cbor::Value) -> [u8; 32] {
+    use serde_cbor::Value;
+
+    match node {
+        // Empty node
+        Value::Integer(0) => {
+            let mut h = Sha256::new();
+            h.update(b"ic-hashtree-empty");
+            h.finalize().into()
+        }
+
+        // Fork
+        Value::Array(items) if items.len() == 3 && items[0] == Value::Integer(1) => {
+            let left = hash_tree(&items[1]);
+            let right = hash_tree(&items[2]);
+            let mut h = Sha256::new();
+            h.update(b"ic-hashtree-fork");
+            h.update(left);
+            h.update(right);
+            h.finalize().into()
+        }
+
+        // Labeled
+        Value::Array(items) if items.len() == 3 && items[0] == Value::Integer(2) => {
+            let label = if let Value::Bytes(b) = &items[1] { b } else { panic!("bad label") };
+            let sub = hash_tree(&items[2]);
+            let mut h = Sha256::new();
+            h.update(b"ic-hashtree-labeled");
+            h.update(label);
+            h.update(sub);
+            h.finalize().into()
+        }
+
+        // Leaf
+        Value::Array(items) if items.len() == 2 && items[0] == Value::Integer(3) => {
+            let data = if let Value::Bytes(b) = &items[1] { b } else { panic!("bad leaf") };
+            let mut h = Sha256::new();
+            h.update(b"ic-hashtree-leaf");
+            h.update(data);
+            h.finalize().into()
+        }
+
+        // Pruned
+        Value::Array(items) if items.len() == 2 && items[0] == Value::Integer(4) => {
+            if let Value::Bytes(b) = &items[1] {
+                let mut digest = [0u8; 32];
+                digest.copy_from_slice(b);
+                digest
+            } else {
+                panic!("bad pruned digest")
+            }
+        }
+
+        _ => panic!("unexpected tree format: {:?}", node),
+    }
+}
