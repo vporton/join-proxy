@@ -1,5 +1,7 @@
 TODO:
 
+- Use https://docs.rs/ic-certification/
+
 - Specify proxy's identity.
 
 - Heavy `Vec` copy operations may hinder performance.
